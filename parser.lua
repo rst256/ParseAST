@@ -733,7 +733,7 @@ function binop_mt:__tostring()
 end
 
 function binop_mt.__index:eval()
-	print(self.l, self.r)
+--	print(self.l, self.r)
 	local o, l, r = tostring(self.op),
 		(tonumber(tostring(self.l)) or self.l:eval()),
 		assert(tonumber(tostring(self.r)) or self.r:eval())

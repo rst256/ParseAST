@@ -109,7 +109,7 @@ int get_tok(LuaLexer self){
 
 static int LuaLexer_get_token(lua_State *L) {//_from_file
 	LuaLexer self = LuaLexer_check(L, 1);
-	int arg_type = lua_type(L, 2);
+	// int arg_type = lua_type(L, 2);
 // LUA_TNONE , LUA_TNIL, LUA_TNUMBER, LUA_TBOOLEAN, LUA_TSTRING, LUA_TTABLE, LUA_TFUNCTION, LUA_TUSERDATA, LUA_TTHREAD, and LUA_TLIGHTUSERDATA. 
 	// if(arg_type==
 	self->src_prev=self->src;
@@ -178,8 +178,9 @@ int parse_integer_literal(source *src, Lexer_Integer *res){
 }
 
 int parse_string_literal(source *src, const unsigned quotes){
-	unsigned ch=getch(src); int matched, is_esc=0;
-	source old_ctx = *src;
+	unsigned ch=getch(src); int is_esc=0;
+	// int matched, is_esc=0;
+	// source old_ctx = *src;
 
 	match_repopt( 1 ) if(is_esc){ 
 		switch(ch){
@@ -203,8 +204,9 @@ int parse_string_literal(source *src, const unsigned quotes){
 	return 0;
 }
 
+#define LEXER_MODE_EXPECT_POSTFIX_UNOP 0x1
 
-int get_next_token(source * src) {
+int get_next_token(source * src, int mode) {
 	if( is_eof(src) ) LEXEMEon_eof;
 	unsigned ch = getch(src);
 	int cc = charclass_id(ch);
@@ -243,6 +245,7 @@ int get_next_token(source * src) {
 		return lexid_ws;
 	}else if(cc & punctuation){ 																			// punctuation: `?!"&-*+/#<=>|%(),.:;`
 	//`$'?@`
+
 		unsigned ch2=nextch(src);
 		switch (ch){
 			case '"': case '\'': 																									// string literal	
@@ -265,8 +268,17 @@ int get_next_token(source * src) {
 				}
 			case '-': 
 				if(ch2 == '>'){ nextch(src); return lexid_arrow; }
-			case '+': case '&': case ':':																		// single and double char tokens 
-			case '<': case '>': case '=': case '|':														
+			case '+': 	
+				if(!(mode&LEXER_MODE_EXPECT_POSTFIX_UNOP) && ch2 == ch){
+					source old_src = *src;
+					if(ch==nextch(src)){ 
+						*src = old_src; return ch;
+					}else{
+						return ch | lexgroup_dbl_form;
+					} 
+				}
+			case '&': case ':': case '|': 																		// single and double char tokens 
+			case '<': case '>': case '=':														
 				if(ch2 == ch){ nextch(src); return ch | lexgroup_dbl_form; }
 			case '!': case '*': case '^': case '%': 														// special assigment tokens
 				if(ch2=='='){ nextch(src); return ch | lexgroup_eq_postfix; }
@@ -283,92 +295,12 @@ int get_next_token(source * src) {
 	return -2;	
 }
 
-int get_next_token2(source * src) {
-	if( is_eof(src) ) LEXEMEon_eof;
-	unsigned ch = getch(src);
-	int cc = charclass_id(ch);
-	
-	if(cc & ident_first){ 																							// ident or keyword
-		int l = 0; nextch(src);
-		source_foreach(src, ch, is_charclass_sys_i(ch) ) l++;
-		return lexid_ident;
-	}else if(cc & digit){ 																							// hex or dec number
-		if(ch=='0' && (ch = nextch(src))=='x' ){ 												// hex number
-			int l = 0; nextch(src);
-			source_foreach(src, ch, is_charclass_sys_h(ch) ) l++;
-			assert(l); return lexid_hex;
-		}else{ 																											// dec number
-			// int value = 0; //nextch(src);
-			Lexer_Integer int_value = 0;
-			// source_foreach(src, ch, is_charclass_sys_d(ch) ) value = 1;
-			parse_integer_literal(src, &int_value);
-			ch = getch(src);
-			if(ch=='.'){ 																								// real number
-				// ...
-				assert(0);
-				return lexid_real;
-			}else if(ch=='e' || ch=='E'){  																// real number in E notation 
-				// ...
-				assert(0);
-				return lexid_real;
-			} else { 																										// integer number
-				return lexid_integer; 
-			}
-		}
-		assert(0); 
-	}else if(cc & white_space){																				// white space `[ \t\r\n]+`
-		int l = 0; nextch(src);
-		source_foreach(src, ch, is_charclass_sys_s(ch) ) l++;
-		return lexid_ws;
-	}else if(cc & punctuation){ 																			// punctuation: `?!"&-*+/#<=>|%(),.:;`
-	//`$'?@`
-		unsigned ch2=nextch(src), ret = ch;
-		switch (ch){
-			case '"': case '\'': 																									// string literal	
-				return parse_string_literal(src, ch) ? lexid_str : -3;
-			case ',': case '?': case ';': case '$': case '@':							// single char tokens
-			case '[': case ']': case '{': case '}': case '(': case ')': 							// bracket tokens
-			case '#': case '\\': 
-				return ch;
-			case '/':																										// single->line comment
-				switch (ch2){
-					case '/':
-						nextch(src); 
-						source_foreach(src, ch, (ch!='\n') );
-						return lexid_sl_comm; 						
-					case '*': 
-						ch2 = nextch(src); 
-						source_foreach(src, ch) if(ch=='/' && ch2=='*') break; else ch2 = ch;
-						nextch(src); 
-						return lexid_ml_comm; 											
-				}
-			case '-': 
-				if(ch2 == '>'){ nextch(src); return lexid_arrow; }
-			case '+': ret=lexid_add_op; //goto 
-			case '&': case ':':																		// single and double char tokens 
-			case '<': case '>': case '=': case '|':														
-				if(ch2 == ch){ nextch(src); return ch | lexgroup_dbl_form; }
-			case '!': case '*': case '^': case '%': 														// special assigment tokens
-				if(ch2=='='){ nextch(src); return ch | lexgroup_eq_postfix; }
-				return ch; 
-			case '.': 
-				if(ch2==ch){ 
-					if(ch2!=nextch(src)) return -2; 
-					nextch(src); return ch | lexgroup_dbl_form; 
-				} 
-				return ch; 
-			default: return -4;
-		}
-		combo_eq:
-		if(ch2=='='){ nextch(src); return ch | lexgroup_eq_postfix; }
-	}//else if(ch=='\'') return parse_string_literal(src, ch) ? lexid_str : -3;
-	return -2;	
-}
+
 
 static int LuaLexer_next(lua_State *L) {//_from_file
 	LuaLexer self = LuaLexer_check(L, 1);
 	self->src_prev=self->src;
-	int tokid = get_next_token(&(self->src));	
+	int tokid = get_next_token(&(self->src), luaL_optinteger(L, 2, 0));	
 	if(tokid>=0) lua_pushinteger(L, tokid); 
 	else if(tokid==-1) lua_pushnil(L); 
 	else if(tokid==-2){ lua_pushboolean(L, 0); nextch(&(self->src)); }

@@ -1,5 +1,5 @@
-package.cpath = [[C:\dev\utf8\re2c\release\?.dll;]]..package.cpath
-package.path = [[?.lua;?\init.lua;]]..package.path
+package.cpath = [[?.dll;]]..package.cpath
+--package.path = [[?.lua;?\init.lua;]]..package.path
 
 local lexer=require'lexer'
 

@@ -14,13 +14,13 @@ echo --------- Compile failed ----------
 GOTO end_l
 
 :compile_lua_l
-:: cl /Ic:\Lua\5.1\include /IC:\Projects\Lua\cmodules   C:\dev\utf8\re2c\release\lua.c /LD -o lexer.dll /link c:\Lua\5.1\lua51.dll
+:: cl /Ic:\Lua\5.1\include /IC:\Projects\Lua\cmodules   %CD%\lua.c /LD -o lexer.dll /link c:\Lua\5.1\lua51.dll
 
- C:\msys32\usr\bin\gcc.exe -Ic:\Projects\Lua\cmodules\lua53\src -IC:\Projects\Lua\cmodules -std=c11 -g  C:\dev\utf8\re2c\release\lua.c -shared -o lexer.dll lua53.dll
+ C:\msys32\usr\bin\gcc.exe -Wall -Wno-parentheses -Ic:\Projects\Lua\cmodules\lua53\src -IC:\Projects\Lua\cmodules -std=c11 -g  %CD%\lua.c -shared -o lexer.dll lua53.dll
  
- :: C:\msys32\usr\bin\gcc.exe -Ic:\Lua\5.1\include -IC:\Projects\Lua\cmodules -std=c11 -g  C:\dev\utf8\re2c\release\lua.c -shared -o lexer.dll c:\Lua\5.1\lua51.dll
+ :: C:\msys32\usr\bin\gcc.exe -Ic:\Lua\5.1\include -IC:\Projects\Lua\cmodules -std=c11 -g  %CD%\lua.c -shared -o lexer.dll c:\Lua\5.1\lua51.dll
  
- :: tcc -Bc:\bin -Lc:\Lua\5.1 -llua51 -Ic:\Lua\5.1\include -IC:\Projects\Lua\cmodules -g  C:\dev\utf8\re2c\release\lua.c -shared -o lexer.dll
+ :: tcc -Bc:\bin -Lc:\Lua\5.1 -llua51 -Ic:\Lua\5.1\include -IC:\Projects\Lua\cmodules -g  %CD%\lua.c -shared -o lexer.dll
 :: ..\lua52.dll
 IF %ERRORLEVEL% EQU 0 GOTO lua_test_l
 echo --------- Compile LUA failed ----------
@@ -64,10 +64,10 @@ exit
 
 
 :lua_test_l
-C:\dev\utf8\re2c\release\lua.exe test.lua 
-echo RUNTIME ERROR (%ERRORLEVEL%)
+%CD%\lua.exe parser-c-test1.lua 
+:: echo RUNTIME ERROR (%ERRORLEVEL%)
 IF %ERRORLEVEL% EQU 0 GOTO end_l
-gdb -ex run --args C:\dev\utf8\re2c\release\lua.exe test.lua 
+gdb -ex run --args %CD%\lua.exe test.lua 
 
 :end_l
 echo ALL TESTS SUSSESS

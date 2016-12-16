@@ -1,4 +1,4 @@
---dofile'parser-c-test1.lua'
+dofile'parser-c-test1.lua'
 
 StrongTypeDeclaration = false
 
@@ -158,24 +158,10 @@ test_expr'3/2*5+6+7+8*9/2-3+4'
 test_expr'3/(2*5)+99'
 test_expr'6+7+8*9/2-3+4'
 
-repeat
-	local l=io.read'l'
-	test_expr(l, '')
---	lm=lex_mem(lexer.new(l))
---	lm.scope = scope:sub()
---	local i, new = Expr(lm())
---	if i~=false then
---		if i then
---			print(string.rep('-',i.pos-1)..'^')
---			print('syntax error at', i.locate, '`', new, '`')
---		else
---			print('syntax error')
---		end
---	else
---		print((tostring(new):match('^%s*(.*)')),
---			load('return '..l, l, 't', _G)(), new.res)
---	end
-until #l==0
+--repeat
+--	local l=io.read'l'
+--	test_expr(l, '')
+--until #l==0
 
 
 --i, new = Chunks( lm())

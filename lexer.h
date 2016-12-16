@@ -2698,9 +2698,9 @@ int charclass_id(unsigned ch){
 
 
 #define match_repopt(pattern) \
-	for(matched=0;\
+	for(;\
 		( (pattern) && !is_eof(src)  );\
-		matched=1, ch = nextch(src) )
+		ch = nextch(src) )
 
 
 
