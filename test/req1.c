@@ -1,5 +1,5 @@
 int i=--((int*)(*(arr.count) + ((5 * 6) /  ((2 + 11) ? 1 : (6 + ++(i))) ))), i1, i2=0;
-const int i3=(((size_t)-1 + (size_t)-1) + (((size_t)8 * (size_t)8) / (size_t)80));
+const int i3=((-1 + 1) + ((8 * 8) / 80));
 if((i <= 0)) {
 	i = 0;
 	if((i2 < 50)) {
@@ -25,11 +25,11 @@ char ip(int c){
 	assert((c < 255));
 	return (char)c;
 }
-char[30]* s;
-sl = (size_t)-1;
+char[30] str;
+int _sizeof_str=-1;
 struct struct1 {
 	int i:8, i2:9;
 	void* v;
 } ss1;
-int ii=((size_t)-1 + (size_t)-1);
+int ii=(-1 + 10);
 p(s.f.fd[99].cb[1](((5 * 6) << (6 * 2))));

@@ -128,8 +128,10 @@ local utf8=require'lua-utf8'
 function keyword_list(s, start_id)
 	local lst, next_id = {}, start_id or 1
 	for k in utf8.gmatch(s, '%s*(%S+)%s*') do
-		assert(not lst[k])
+		assert(lst[k]==nil and lst[next_id]==nil,
+			'keyword redefine '..k..':'..next_id)
 		lst[k] = next_id
+		lst[next_id] = k
 		next_id = next_id + 1
 	end
 	return lst

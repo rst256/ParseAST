@@ -31,11 +31,11 @@ Value = Alt(
 
 
 _TypeExpr = Alt(TypeIdent)
-
+--_TypeExprArray = Alt(Seq(lexeme' [', (lexeme'int'), lexeme' ]'):opt(false)^'ArrayDim')
 TypeExpr = Seq(
 	(kwrd'const'):opt(false)^'Const',
 	_TypeExpr^'BaseType',
-	Seq(lexeme' [', (lexeme'int'), lexeme' ]'):opt(false)^'ArrayDim',
+	Wrap(lexeme' [', lexeme'int', lexeme' ]'):opt(false)^'ArrayDim',
 	List(lexeme' *')^'Pointer'
 )
 
@@ -63,7 +63,7 @@ function TypeExprProp:sizeof()
 	if self.Pointer>0 then
 		size=8
 	else
-		size=-1--assert(self.sym, tostring(self)).sizeof
+		size=assert(self.sym, tostring(self)).sizeof
 	end
 	if self.ArrayDim then
 		size=size*tonumber(tostring(self.ArrayDim))
@@ -83,12 +83,17 @@ UnExpr:insert(
 			lexeme'*', lexeme'&', lexeme'!'),
 		UnExpr):tmpl'$1($2)',
 	Seq(Value, Alt(lexeme'++', lexeme'--')):tmpl'($1)$2',
-	Seq(kwrd' sizeof', lexeme' (', Alt(TypeExpr, Ident)^'Expr', lexeme' )'):tmpl'(size_t)$Size':hndl(function(tok0, tok, obj)
+	Wrap(Seq(kwrd' sizeof', lexeme' ('), Alt(TypeExpr, Ident), lexeme' )'):hndl(function(tok0, tok, obj)
 		if tok~=nil then
-			obj.Size=obj.Expr.sizeof or
-				-1--tok0.scope:find(tostring(obj.Expr)).type.sizeof
+--			local t = assert(tok0.scope:find(tostring(obj.Expr)),
+--				tostring(obj.Expr)).type
+			if obj.sizeof then return tok, obj.sizeof end
+			local t = assert(tok.scope:find(tostring(obj)),
+				tostring(obj))--.type
+--			local t = assert(obj.type, tostring(obj))
+			return tok, t and t.sizeof or -1
 		end
-		return tok, obj
+--		return tok, obj
 	end)
 )
 

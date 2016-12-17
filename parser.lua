@@ -10,9 +10,14 @@ function table.concat(tbl, sep)
 	return s
 end
 
-function io.readall(file)
+function io.readall(file, def)
 	if type(file)=='string' then
-		file = assert(io.open(file), 'can\'t open file"'..file..'"')
+		if def~=nil then
+			file = io.open(file)
+			if not file then return def end
+		else
+			file = assert(io.open(file), 'can\'t open file"'..file..'"')
+		end
 	end
 	local res = file:read'*a'
 	file:close()
@@ -45,25 +50,23 @@ function __rule_mt:__pow(name)
 end
 
 function __rule_mt:__eq(that)
-	if self.rule_type~=that.rule_type then return false end
-	if self.raweq then return self:raweq(that) end
-	local self_seq, that_seq = self:toseq(), that:toseq()
-	if #self_seq~=#that_seq then return false end
-	for k=1, #self_seq do
-		if self_seq[k]~=that_seq[k] then return false end
-	end
-	return true
+	if rawequal(self, that) then return true end
+	if not self.raweq then error(tostring(self)) end
+	return self:raweq(that)
 end
 
-function __rule_mt:__eq(that)
-	if self.rule_type~=that.rule_type then return false end
-	if self.raweq then return self:raweq(that) end
-	local self_seq, that_seq = self:toseq(), that:toseq()
-	if #self_seq~=#that_seq then return false end
-	for k=1, #self_seq do
-		if self_seq[k]~=that_seq[k] then return false end
-	end
-	return true
+function __rule_mt.__lt(a, b)
+--	print(a, '<', b, '\t\t', (a:subset(b) ), (a==b))
+	if not b.subset then error(tostring(b)) end
+	return b:subset(a) or (a==b)
+end
+
+function __rule_mt.__le(a, b) -- a <= b
+--	print(a, '<=', b, '\t\t', (a:subset(b) ), (a==b))
+	if not a.subset then error(tostring(a)) end
+	if a:subset(b) or (a==b) then return true end
+	if b:subset(a) then return false end
+--	return (a:subset(b) )
 end
 
 function __rule_mt:__bxor(that)
@@ -143,12 +146,32 @@ function Rule:resume(idx, c)
 	return i2, c2
 end
 
-function Rule:toalt()
-	return { self }
-end
+function Rule.ends() 	 end
+function Rule.begins() end
+--function Rule:subset(r) print(self) return false end
+function Rule.intersect(a, b) return a:subset(b) or b:subset(a) end
 
-function Rule:toseq()
-	return { self }
+function Rule.correlate(a, b, opts)
+	local opts = opts or 'e'
+	if a.correlation==nil then a.correlation={} end
+	local cr = a.correlation[b]
+	if cr==nil then cr={} a.correlation[b]=cr end
+	if b.correlation==nil then b.correlation={} end
+	local cr_rev = b.correlation[a]
+	if cr_rev==nil then cr_rev={} b.correlation[a]=cr_rev end
+	if opts:find('e', 1, false) and cr.equal==nil then
+		cr.equal=(a==b)
+		cr_rev.equal=cr.equal
+	end
+	if opts:find('i', 1, false) and cr.intersept==nil then --and not cr.equal
+		cr.intersept=a:intersept(b)
+		cr_rev.intersept=cr.intersept
+	end
+	if opts:find('s', 1, false) and cr.subset==nil then --and not cr.equal
+		cr.subset=a:subset(b)
+--		cr_rev.intersept=cr.intersept
+	end
+	return a:subset(b) or b:subset(a)
 end
 
 function Rule:prefixof(that)
@@ -204,6 +227,16 @@ function Rule:tmpl(tmpl)
 	return self
 end
 
+
+
+local ProxyRule = setmetatable({
+	rule_type='?ProxyRule?',
+	raweq=function(a, b) return a.rule==b.rule end,
+	subset=function(self, a) return self.rule:subset(a) end,
+	prefixof=function(self, that) return self.rule:prefixof(that) end,
+	toseq=function(self) return self.rule:toseq() end,
+}, { __index=Rule })
+
 function Rule:hndl(fn, low)
 	local r = { rule_type=self.rule_type, rule=self, handler_fn=fn, low=low }
 
@@ -213,10 +246,7 @@ function Rule:hndl(fn, low)
 	end,
 	__index=setmetatable({
 		rule_type='hndl',
-		raweq=function(a, b) return a.rule==b.rule end,
-		prefixof=function(self, that) return self.rule:prefixof(that) end,
-		toseq=function(self) return self.rule:toseq() end,
-	}, { __index=Rule }),
+	}, { __index=ProxyRule }),
 	__call=function(self, idx)
 		if self.low and self.low(idx, self)==false then return end
 		local i, a = self.rule(idx)
@@ -236,10 +266,7 @@ function Rule:wrapper(fn)
 	end,
 	__index=setmetatable({
 		rule_type='wrapper',
-		raweq=function(a, b) return a.rule==b.rule end,
-		prefixof=function(self, that) return self.rule:prefixof(that) end,
-		toseq=function(self) return self.rule:toseq() end,
-	}, { __index=Rule }),
+	}, { __index=ProxyRule }),
 	__call=function(self, idx)
 		return self.fn(self.rule, idx)
 	end})
@@ -254,10 +281,7 @@ function Rule:nm(name)
 	end,
 	__index=setmetatable({
 		rule_type='nm',
-		prefixof=function(self, that) return self.rule:prefixof(that) end,
-		raweq=function(a, b) return a.rule==b.rule end,
-		toseq=function(self) return self.rule:toseq() end,
-	}, { __index=Rule }),
+	}, { __index=ProxyRule }),
 	__call=function(self,  idx)
 		return self.rule( idx)
 	end})
@@ -272,10 +296,7 @@ function Rule:opt(def_value)
 	end,
 	__index=setmetatable({
 		rule_type='opt',
-		prefixof=function(self, that)
-			return self.rule:prefixof(that)
-		end,
-	}, { __index=Rule }),
+	}, { __index=ProxyRule }),
 	__call=function(self,  idx)
 		local i, v = self.rule( idx)
 		if not i then return idx, self.def_value else return i, v end
@@ -286,7 +307,6 @@ end
 
 local function compact_capt(capt_mt, i, a)
 	if i==nil then return i, a end
---	if #a==1 and not capt_mt.capt_mt then return i, a[1] end
 	if #a==1 then return i, a[1] end
 	if #a==0 then
 		if capt_mt.capt_mt and capt_mt.capt_mt.__tostring  then
@@ -313,26 +333,20 @@ function Alt(...)
 	}
 		return setmetatable(r, rule_mt{
 			__tostring=function(self)
-				index[self]=counter
-				counter=counter+1
-				local s = ''
-				for _,v in ipairs(self) do
-					if index[v] then
-						s=s..'<'..index[v]..'> | '
-					else
-									local s1, l1 = tostring(v):gsub('\n', '\n\t')
-				if l1>0 then s=s..'\n\t'..s1..' | ' else s=s..s1..' | ' end
+				return 'alt'
+--				index[self]=counter
+--				counter=counter+1
+--				local s = ''
+--				for _,v in ipairs(self) do
+--					if index[v] then
+--						s=s..'<'..index[v]..'> | '
+--					else
+--									local s1, l1 = tostring(v):gsub('\n', '\n\t')
+--				if l1>0 then s=s..'\n\t'..s1..' | ' else s=s..s1..' | ' end
 
-					end
-				end
-				return index[self]..': '..(s:gsub('%s*| $', ''))
-			end,
-			__le=function(self, that)
-				for _,v in ipairs(self) do
-					if v==that then
-						return true
-					end
-				end
+--					end
+--				end
+--				return index[self]..': '..(s:gsub('%s*| $', ''))
 			end,
 			__index=setmetatable({
 				rule_type='Alt',
@@ -342,6 +356,12 @@ function Alt(...)
 						if  that:prefixof(v) then c=c+1 end
 					end
 					if c>0 then return c/#self else return 0 end
+				end,
+				subset=function(self, a)
+					for _,v in ipairs(self) do
+						if (v==a) or v:subset(a) then return true end
+					end
+					return false
 				end,
 				toalt=function(self) return self end,
 				add=function(self, a, ...)
@@ -354,7 +374,16 @@ function Alt(...)
 					table.insert(self, 1, a)
 					return self:insert(...)
 				end,
-
+				raweq=function(self, a)
+					if getmetatable(a)==getmetatable(self) then
+						for _,v in ipairs(self) do
+							for _,vv in ipairs(a) do
+								if (vv==v) then return true end
+							end
+						end
+					end
+					return false
+				end,
 
 
 			}, { __index=Rule }),
@@ -363,35 +392,34 @@ function Alt(...)
 				for k, v in ipairs(self) do
 					i, ov = v(idx)
 					if i~=nil then
-
-
-						return i, ov--setmetatable({ value=ov, alt_type=v.capt_name or k }, self.capt_mt)
-
+						if ov==nil then	return i, k else return i, ov end
 					end
 				end
-				return --false, -10
+				return
 			end
 		})
 end
 
-function Seq(...)
-	local r = { ... }
+function Seq(first, ...)
+--	assert(first)
+	local r = { first, ... }
 
 	return setmetatable(r, rule_mt{
 	__tostring=function(self)
-		index[self]=counter
-		counter=counter+1
-		local s = ''
-		for _,v in ipairs(self) do
-			if index[v] then
-				s=s..'<'..index[v]..'> '
-			else
-				local s1, l1 = tostring(v):gsub('\n', '\n\t')
-				if l1>0 then s=s..'\n\t'..s1..' + ' else s=s..s1..' + ' end
+		return 'seq'
+--		index[self]=counter
+--		counter=counter+1
+--		local s = ''
+--		for _,v in ipairs(self) do
+--			if index[v] then
+--				s=s..'<'..index[v]..'> '
+--			elseif v then
+--				local s1, l1 = string.gsub(tostring(v), '\n', '\n\t')
+--				if l1>0 then s=s..'\n\t'..s1..' + ' else s=s..s1..' + ' end
 
-			end
-		end
-		return index[self]..': {'..(s:gsub('%s*%+ $', ''))..'}\n'
+--			end
+--		end
+--		return index[self]..': {'..(s:gsub('%s*%+ $', ''))..'}\n'
 	end,
 	__index=setmetatable({
 		rule_type='Seq',
@@ -424,6 +452,30 @@ function Seq(...)
 			table.insert(self, a)
 			return self:insert(...)
 		end,
+		raweq=function(self, a)
+			if getmetatable(a)==getmetatable(self) then
+				if #self~=#a then return false end
+				for k,v in ipairs(self) do
+					if (a[k]~=v) then return false end
+				end
+				return true
+			end
+			return false
+		end,
+		check=function(self)--self[1]==nil
+			if self[1]<=self or self<=self[1] then return false, '<=' end
+			return true
+		end,
+		subset=function(self, a)
+			if getmetatable(a)==getmetatable(self) then
+				if #self~=#a then return false end
+				for k,v in ipairs(self) do
+					if (v~=a[k]) and not v:subset(a[k]) then return false end
+				end
+				return true
+			end
+			return false
+		end,
 	}, { __index=Rule }),
 	__call=function(self,  idx)
 		local new, use_capt_names = {}
@@ -443,43 +495,7 @@ function Seq(...)
 			end
 			idx=i
 		end
---		if use_capt_names then
 			return idx, setmetatable(new, self.capt_mt)
---		else
---			return compact_capt(self, idx, new)
---		end
-	end})
-end
-
-function Block(items, open, close)
-	local r = {
-		items=items,
-		open=open,
-		close=close
-	}
-
-	return setmetatable(r, rule_mt{
-	__index=setmetatable({ rule_type='Block' }, { __index=Rule }),
-	__call=function(self,  idx)
-		local new = {}
-
-		local i, ov = self.open( idx)
-		if not i then return false, -1
-			end
-		new.open=ov
-		idx=i
-
-		while true do
-			local i, iv = self.items( idx)
-			if not i then break end
-			table.insert(new, iv or i)
-			idx=i
-		end
-		if #new==0 then return false, -2 end
-
-		idx, new.close = self.close( idx)
-		if not idx then return false, -3 end
-		return idx, setmetatable(new, self.capt_mt)
 	end})
 end
 
@@ -492,7 +508,11 @@ function List(items)
 	__tostring=function(self)
 		return '{'..tostring(self.items)..'}'
 	end,
-	__index=setmetatable({ rule_type='List' }, { __index=Rule }),
+	__index=setmetatable({
+		rule_type='List',
+		subset=function(self, a) return self.items:subset(a) end,
+		raweq=function(self, a) return self.items==a.items end,
+	}, { __index=Rule }),
 	__call=function(self, idx)
 		local new, len = {}, 0
 		while idx do
@@ -512,11 +532,10 @@ function List(items)
 	end})
 end
 
-function ListSep(items, sep, recursive)
+function ListSep(items, sep)
 	local r = {
 		items=Alt(items),
-		sep=sep,
-		recursive=recursive
+		sep=sep
 	}
 
 	return setmetatable(r, rule_mt{
@@ -525,18 +544,15 @@ function ListSep(items, sep, recursive)
 	end,
 	__index=setmetatable({
 		rule_type='ListSep',
+		raweq=function(self, a)
+			return self.items==a.items and self.sep==a.sep
+		end,
+		subset=function(self, a) return self.items:subset(a) end,
 		capt_mt={ __tostring=function(self) return table.concat(self, ' ') end }
 	}, { __index=Rule }),
 	__call=function(self,  idx)
 		local new = {}
 		while true do
---			if self.recursive and #new>0 then
---				local i, iv = self(idx)
---				if not i then return end
---				table.insert(new, iv)
---				idx=i
---				break
---			end
 			local i, iv = self.items( idx)
 			if i==nil then return end
 			table.insert(new, iv or i)
@@ -548,17 +564,15 @@ function ListSep(items, sep, recursive)
 			if ivsep then table.insert(new, ivsep) end
 			idx=isep
 		end
-		return compact_capt(self, idx, new)
---		return idx, setmetatable(new, self.capt_mt)
+		return idx, setmetatable(new, self.capt_mt)
 	end})
 end
 
 
-function ListSepLast(items, sep, last, recursive)
+function ListSepLast(items, sep, last)
 	local r = {
 		items=Alt(items),
-		sep=sep, last=last,
-		recursive=recursive
+		sep=sep, last=last
 	}
 
 	return setmetatable(r, rule_mt{
@@ -567,35 +581,27 @@ function ListSepLast(items, sep, last, recursive)
 	end,
 	__index=setmetatable({
 		rule_type='ListSepLast',
+		raweq=function(self, a)
+			return self.items==a.items and self.sep==a.sep and self.last==a.last
+		end,
+		subset=function(self, a) return self.items:subset(a) end,
 		capt_mt={ __tostring=function(self) return table.concat(self, ' ') end }
 	}, { __index=Rule }),
 	__call=function(self,  idx)
 		local new = {}
 		while true do
-			if self.recursive and #new>0 then
-				local i, iv = self(idx)
-				if not i then
-					return --false, -7
-				end
-				table.insert(new, iv)
-				idx=i
-				break
-			end
 			local i, iv = self.items( idx)
 
 			if i==nil then
 				i, iv = self.last(idx)
-				if i==nil then
-					return --false, -6
+				if i==nil then return end
+				if self.last.capt_name then
+					new[self.last.capt_name]=iv or true
 				else
-					if self.last.capt_name then
-						new[self.last.capt_name]=iv or true
-					else
-						table.insert(new, iv or i)
-					end
-					idx=i
-					break
+					table.insert(new, iv or i)
 				end
+				idx=i
+				break
 			end
 			table.insert(new, iv or i)
 			idx=i
@@ -644,32 +650,22 @@ function ptrn(p)
 end
 
 
-local separators, separators_count = {}, 0
-function sep(kw)
-	local sep_rule = separators[kw]
-	if sep_rule then return sep_rule end
-	sep_rule=ptrn(kw:esc_pattern())
-	separators_count=separators_count+1
-	sep_rule.lexeme_id = separators_count
-	separators[kw]=sep_rule
-	return sep_rule
-end
-
-
-
 function lexeme(p)
 	local r = {
-		pattern=assert(tonumber(p) or lexemes[p:match'%s*(.+)'], p),
+		pattern=assert(tonumber(tonumber(p) or lexemes[p:match'%s*(.+)']), p),
 		is_capture=tostring(p):sub(1,1)~=' '
 	}
 
 	return setmetatable(r, rule_mt{
 		__tostring=function(self)
-			return lexemes[self.pattern]
+			return assert(lexemes[self.pattern])
 		end,
 		__index=setmetatable({
 			rule_type='lexeme',
-			raweq=function(a, b) return a.pattern==b.pattern end,
+			raweq=function(a, b)
+				return (getmetatable(a)==getmetatable(b)) and a.pattern==b.pattern
+			end,
+			subset=function() return false end,
 		}, { __index=Rule }),
 		__call=function(self, tok)
 			if tok and tok.lexeme==self.pattern then
@@ -683,18 +679,47 @@ function lexeme(p)
 	})
 end
 
-local __keywords, keywords_count = {}, 0
-function kwrd(kw)
-	local kw_id = assert(tonumber(kw) or keywords[kw:match'%s*(.+)'], kw)
-	if kw:match'^%s+' then kw_id=-kw_id end
-	local kw_rule = __keywords[kw_id]
-	if kw_rule then return kw_rule end
-	kw_rule=lexeme(kw_id<0 and ' '..(-kw_id) or kw_id)
-	keywords_count=keywords_count+1
-	kw_rule.lexeme_id = keywords_count
-	__keywords[kw_id]=kw_rule
-	return kw_rule
+function kwrd(p)
+	local r = {
+		pattern=assert(tonumber(tonumber(p) or keywords[p:match'%s*(.+)']), p),
+		is_capture=tostring(p):sub(1,1)~=' '
+	}
+
+	return setmetatable(r, rule_mt{
+		__tostring=function(self)
+			return assert(keywords[self.pattern])
+		end,
+		__index=setmetatable({
+			rule_type='lexeme',
+			raweq=function(a, b)
+				return (getmetatable(a)==getmetatable(b)) and a.pattern==b.pattern
+			end,
+			subset=function() return false end,
+		}, { __index=Rule }),
+		__call=function(self, tok)
+			if tok and tok.lexeme==self.pattern then
+				if self.is_capture then
+				return tok.next or false, tok
+			else
+				return tok.next or false
+				end
+			end
+		end
+	})
 end
+
+--local __keywords, keywords_count = {}, 0
+--function kwrd(kw)
+--	local kw_id = assert(tonumber(kw) or keywords[kw:match'%s*(.+)'], kw)
+--	if kw:match'^%s+' then kw_id=-kw_id end
+--	local kw_rule = __keywords[kw_id]
+--	if kw_rule then return kw_rule end
+--	kw_rule=lexeme(kw_id<0 and ' '..(-kw_id) or kw_id)
+--	keywords_count=keywords_count+1
+--	kw_rule.lexeme_id = keywords_count
+--	__keywords[kw_id]=kw_rule
+--	return kw_rule
+--end
 
 
 
@@ -724,8 +749,8 @@ function Precedence0(items, op1, ...)
 	return Precedence0(r, ...)
 end
 
-
-local binop_mt = { __index={} }
+BinOp = {}
+local binop_mt = { __index=BinOp }
 
 function binop_mt:__tostring()
 	return '('..tostring(self.l)..' '..
@@ -733,7 +758,6 @@ function binop_mt:__tostring()
 end
 
 function binop_mt.__index:eval()
---	print(self.l, self.r)
 	local o, l, r = tostring(self.op),
 		(tonumber(tostring(self.l)) or self.l:eval()),
 		assert(tonumber(tostring(self.r)) or self.r:eval())
@@ -792,7 +816,13 @@ Precedence = newRule(
 				return i2, bin_op(larg, tok.prev, r2)
 			end
 		end
-	end
+	end,
+	{--self.value:subset(a)
+		subset=function(self, a) return false end,
+		raweq=function(self, a)
+			if getmetatable(a)==getmetatable(self) then return self.value==a.value end
+		end,
+	}
 )
 
 Wrap = newRule(
@@ -820,7 +850,13 @@ Wrap = newRule(
 		end
 
 		return end_tok, body_value
-	end
+	end,
+	{
+		subset=function(self, a) return self.body:subset(a) end,
+		raweq=function(self, a)
+			if getmetatable(a)==getmetatable(self) then return self.body==a.body end
+		end,
+	}
 )
 
 

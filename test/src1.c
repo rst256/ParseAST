@@ -14,8 +14,8 @@ char ip(int c){
 	assert(c<255);
 	return (char)c;
 }
-char[30] * s;
-sl=sizeof(s);
+char[30]  str;
+int _sizeof_str=sizeof(str);
 struct struct1 {
 	int i:8, i2:9;
 	void *v;
