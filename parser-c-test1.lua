@@ -1,6 +1,6 @@
 StrongTypeDeclaration = 1
 
-require'parser-c'
+local gmr=require'parser-c2'
 
 --package.cpath = [[?.dll;]]..package.cpath
 --package.path = [[?.lua;?\init.lua;]]..package.path
@@ -137,7 +137,7 @@ local function test_expr(ll, l)
 	lm.scope = scope:sub()
 	local l = l or ''
 	local clock0=os.clock()
-	local i, new = Expr(lm())
+	local i, new = gmr.Expr(lm())
 	local clock=os.clock()-clock0
 	if i~=false then
 		if i then
@@ -169,7 +169,11 @@ local function test_expr(ll, l)
 		end
 	end
 end
-print(Define:check(), Alt(TypeExpr, Chunk)^'Type'<=Define)
+
+gmr()
+gmr'Expr'
+gmr'Value'
+assert(Goto:check())
 test_expr'5+6+7+8*9/2-3+4'
 test_expr'3/2*5+6+7+8*9/2-3+4'
 test_expr'3/(2*5)+99'

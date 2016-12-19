@@ -45,9 +45,9 @@ local __rule_mt = {
 
 }
 
-function __rule_mt:__pow(name)
-	return self:nm(name)
-end
+--function __rule_mt:__pow(name)
+--	return self:nm(name)
+--end
 
 function __rule_mt:__eq(that)
 	if rawequal(self, that) then return true end
@@ -175,8 +175,7 @@ function Rule.correlate(a, b, opts)
 end
 
 function Rule:prefixof(that)
-	local that_seq = that:toseq()
-	if self==that_seq[1] then return 1/#that_seq end
+	return false
 end
 
 local function __tmpl(tmpl, capt, undef_val)
@@ -235,14 +234,31 @@ local ProxyRule = setmetatable({
 	subset=function(self, a) return self.rule:subset(a) end,
 	prefixof=function(self, that) return self.rule:prefixof(that) end,
 	toseq=function(self) return self.rule:toseq() end,
+	resolve=function(self, gmr) gmr(self, 'rule') end,
 }, { __index=Rule })
+
+local rule_nm_mt = rule_mt{
+__tostring=function(self)
+	return self.capt_name..'='..tostring(self.rule)
+end,
+__index=setmetatable({
+	rule_type='nm',
+}, { __index=ProxyRule }),
+__call=function(self,  idx)
+	return self.rule( idx)
+end}
+
+function __rule_mt:__pow(name)
+	return setmetatable({ rule=self, capt_name=name }, rule_nm_mt)
+end
+
 
 function Rule:hndl(fn, low)
 	local r = { rule_type=self.rule_type, rule=self, handler_fn=fn, low=low }
 
 	return setmetatable(r, rule_mt{
 	__tostring=function(self)
-		return tostring(self.rule)
+		return '@('..tostring(self.rule)..')'
 	end,
 	__index=setmetatable({
 		rule_type='hndl',
@@ -262,7 +278,7 @@ function Rule:wrapper(fn)
 
 	return setmetatable(r, rule_mt{
 	__tostring=function(self)
-		return tostring(self.rule)
+		return '('..tostring(self.rule)..')'
 	end,
 	__index=setmetatable({
 		rule_type='wrapper',
@@ -272,20 +288,21 @@ function Rule:wrapper(fn)
 	end})
 end
 
-function Rule:nm(name)
-	local r = { rule_type=self.rule_type, rule=self, capt_name=name }
+--function Rule:nm(name)
+--	local r = { rule_type=self.rule_type, rule=self, capt_name=name }
 
-	return setmetatable(r, rule_mt{
-	__tostring=function(self)
-		return self.capt_name..'='..tostring(self.rule)
-	end,
-	__index=setmetatable({
-		rule_type='nm',
-	}, { __index=ProxyRule }),
-	__call=function(self,  idx)
-		return self.rule( idx)
-	end})
-end
+--	return setmetatable(r, rule_mt{
+--	__tostring=function(self)
+--		return self.capt_name..'='..tostring(self.rule)
+--	end,
+--	__index=setmetatable({
+--		rule_type='nm',
+--	}, { __index=ProxyRule }),
+--	__call=function(self,  idx)
+--		return self.rule( idx)
+--	end})
+--end
+--__rule_mt.__pow=Rule.nm
 
 function Rule:opt(def_value)
 	local r = { rule=self, def_value=def_value }
@@ -323,6 +340,7 @@ local counter = 1
 index={}
 
 
+
 function Alt(...)
 	local r = { ... }
 	r.capt_mt={
@@ -351,11 +369,10 @@ function Alt(...)
 			__index=setmetatable({
 				rule_type='Alt',
 				prefixof=function(self, that)
-					local c = 0
-					for _,v in ipairs(self) do
-						if  that:prefixof(v) then c=c+1 end
+					if self==that then return true, 0 end
+					for k,v in ipairs(self) do
+						if v:prefixof(that) then return true, k end
 					end
-					if c>0 then return c/#self else return 0 end
 				end,
 				subset=function(self, a)
 					for _,v in ipairs(self) do
@@ -384,7 +401,9 @@ function Alt(...)
 					end
 					return false
 				end,
-
+				resolve=function(self, gmr)
+					for k in ipairs(self) do gmr(self, k) end
+				end,
 
 			}, { __index=Rule }),
 			__call=function(self,  idx)
@@ -403,7 +422,9 @@ end
 function Seq(first, ...)
 --	assert(first)
 	local r = { first, ... }
-
+	for k,v in ipairs(r) do
+		assert(v, k)
+	end
 	return setmetatable(r, rule_mt{
 	__tostring=function(self)
 		return 'seq'
@@ -427,13 +448,14 @@ function Seq(first, ...)
 			__tostring=function(self) return table.concat(self, ' ') end
 		},
 		prefixof=function(self, that)
-			if self==that then return 1 end
-			local that_seq = that:toseq()
-			if #self>#that_seq then return 0 end
-			for k=1, #self do
-				if self[k]~=that_seq[k] then return 0 end
-			end
-			return #self/#that_seq
+			if self[1]==that then return true end
+			return self[1]:prefixof(that)
+--			local that_seq = that:toseq()
+--			if #self>#that_seq then return 0 end
+--			for k=1, #self do
+--				if self[k]~=that_seq[k] then return 0 end
+--			end
+--			return #self/#that_seq
 		end,
 		toseq=function(self, t)
 			local r = t or {}
@@ -463,7 +485,8 @@ function Seq(first, ...)
 			return false
 		end,
 		check=function(self)--self[1]==nil
-			if self[1]<=self or self<=self[1] then return false, '<=' end
+			if self:prefixof(self) then return false, '<=' end
+--			if self[1]<=self then return false, '<=' end
 			return true
 		end,
 		subset=function(self, a)
@@ -475,6 +498,9 @@ function Seq(first, ...)
 				return true
 			end
 			return false
+		end,
+		resolve=function(self, gmr)
+			for k in ipairs(self) do gmr(self, k) end
 		end,
 	}, { __index=Rule }),
 	__call=function(self,  idx)
@@ -512,6 +538,9 @@ function List(items)
 		rule_type='List',
 		subset=function(self, a) return self.items:subset(a) end,
 		raweq=function(self, a) return self.items==a.items end,
+		resolve=function(self, gmr)
+			gmr(self, 'items')
+		end,
 	}, { __index=Rule }),
 	__call=function(self, idx)
 		local new, len = {}, 0
@@ -534,7 +563,7 @@ end
 
 function ListSep(items, sep)
 	local r = {
-		items=Alt(items),
+		items=(items),
 		sep=sep
 	}
 
@@ -546,6 +575,9 @@ function ListSep(items, sep)
 		rule_type='ListSep',
 		raweq=function(self, a)
 			return self.items==a.items and self.sep==a.sep
+		end,
+		resolve=function(self, gmr)
+			gmr(self, 'items', 'sep')
 		end,
 		subset=function(self, a) return self.items:subset(a) end,
 		capt_mt={ __tostring=function(self) return table.concat(self, ' ') end }
@@ -571,7 +603,7 @@ end
 
 function ListSepLast(items, sep, last)
 	local r = {
-		items=Alt(items),
+		items=(items),
 		sep=sep, last=last
 	}
 
@@ -583,6 +615,9 @@ function ListSepLast(items, sep, last)
 		rule_type='ListSepLast',
 		raweq=function(self, a)
 			return self.items==a.items and self.sep==a.sep and self.last==a.last
+		end,
+		resolve=function(self, gmr)
+			gmr(self, 'items') gmr(self, 'sep') gmr(self, 'last')
 		end,
 		subset=function(self, a) return self.items:subset(a) end,
 		capt_mt={ __tostring=function(self) return table.concat(self, ' ') end }
@@ -822,6 +857,12 @@ Precedence = newRule(
 		raweq=function(self, a)
 			if getmetatable(a)==getmetatable(self) then return self.value==a.value end
 		end,
+		resolve=function(self, gmr)
+			gmr(self, 'value')
+			for pr, op in ipairs(self.op) do
+				gmr(self.op, pr)
+			end
+		end,
 	}
 )
 
@@ -856,9 +897,66 @@ Wrap = newRule(
 		raweq=function(self, a)
 			if getmetatable(a)==getmetatable(self) then return self.body==a.body end
 		end,
+		resolve=function(self, gmr)
+			gmr(self, 'open')
+				gmr(self, 'body')
+				gmr(self, 'close')
+		end,
 	}
 )
 
 
 Ident = lexeme'ident'--ptrn'([%a_][%a%d_]*)%f[^%a%d_]'
+--debug.setmetatable(''', rule_mt{})
 
+local gmr_rule_mt = {}
+local grammar_mt = {}
+
+function grammar_mt:__index(name)
+	return setmetatable({ name=name }, gmr_rule_mt)
+end
+
+
+function Grammar(root)
+	local forward_rules = {}
+	return setmetatable({}, {
+		__index=function(self, name)
+--			local forward_rule = forward_rules[name]
+--			if not forward_rule then
+--				forward_rule = setmetatable({ name=name }, gmr_rule_mt)
+--				forward_rules[name] = forward_rule
+--			end
+--			return forward_rule
+			return setmetatable({ forward=name }, rule_mt{})
+		end,
+		__newindex=function(self, name, rule)
+			rule.name=name
+			rawset(self, name, rule)
+		end,
+		__call=function(self, r)
+			local function fn(rule, name, name2, ...)
+--				if not rule[name] then
+--					print(rule, name, rule[name])
+--				end
+				local rf=assert(rule[name], (rule.name or tostring(rule))..'.'..name)
+				assert(type(rf)=='table', name)
+				if rf.forward then
+					rule[name]=assert(self[rf.forward], rf.forward)
+--				elseif rule[name]==nil then
+				end
+
+				local resolve = rule[name].resolve
+				if resolve then
+					rule[name].resolve=false
+					resolve(rule[name], fn)
+				end
+				if name2 then fn(rule, name2, ...) end
+			end
+			local resolve = assert(rawget(self, r or root), r or root).resolve
+			if resolve then
+				self[r or root].resolve=false
+				resolve(self[r or root], fn)
+			end
+		end
+	})
+end

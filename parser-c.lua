@@ -1,9 +1,12 @@
 dofile'keyword.lua'
 
 require'parser'
-
+gmr=Grammar'Chunks'
 --LValue = ListSep(Ident^'id', lexeme' .'):tmpl'${.}'
-_LValue = Alt(Seq(Ident, lexeme' [', (lexeme'int'), lexeme' ]'):tmpl'$1[$2]', Ident)
+_LValue = Alt(Seq(Ident, lexeme' [',
+--	(lexeme'int'),
+	gmr.Expr,
+lexeme' ]'):tmpl'$1[$2]', Ident)
 LValue = Alt(_LValue)
 LValue:insert(
 	Seq(_LValue, lexeme' .', LValue):tmpl'$1.$2'
@@ -35,7 +38,7 @@ _TypeExpr = Alt(TypeIdent)
 TypeExpr = Seq(
 	(kwrd'const'):opt(false)^'Const',
 	_TypeExpr^'BaseType',
-	Wrap(lexeme' [', lexeme'int', lexeme' ]'):opt(false)^'ArrayDim',
+	Wrap(lexeme' [', gmr.Expr, lexeme' ]'):opt(false)^'ArrayDim',
 	List(lexeme' *')^'Pointer'
 )
 
@@ -118,7 +121,7 @@ Alt(lexeme'>>', lexeme'<<'),
 
 	Alt( lexeme'||', lexeme'&&' )--	lexeme'&',
 )
-
+gmr.Expr=Expr
 
 Value:add(
 	Seq( lexeme' (', Expr^'Cond', lexeme' ?',
@@ -169,6 +172,7 @@ Value:insert(
 
 
 Define = Seq(
+--	Alt(TypeExpr, Define),
 	TypeExpr^'Type',
 	ListSep(Alt(
 			Seq(	Ident^'Var', lexeme' assign', Expr^'Value'):tmpl'$Var=$Value', Ident
@@ -176,7 +180,7 @@ Define = Seq(
 ):tmpl'$Type $Vars;'-- = $Values
 
 Label = Seq(Ident, lexeme' :'):tmpl'$1:'
-local Goto = Seq(kwrd' goto', Ident, lexeme' ;'):tmpl'goto $1;'
+Goto = Seq(kwrd' goto', Ident, lexeme' ;'):tmpl'goto $1;'
 local Return = Seq(kwrd' return', Expr, lexeme' ;'):tmpl'return $1;'
 local Break = Seq(kwrd' break', lexeme' ;'):tmpl'break;'
 local Continue = Seq(kwrd' continue', lexeme' ;'):tmpl'goto __continue__;'
@@ -193,6 +197,7 @@ Chunk = Alt(
 )
 
 Chunks = List(Chunk):tmpl'${\n}'
+gmr.Chunks=Chunks
 
 Block = Alt(
 	lexeme';',
