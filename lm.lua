@@ -115,6 +115,14 @@ local function lexer_memoryzator(lex, offset)
 
 	local tok_prop = {}
 
+	function tok_prop:iseof()
+		return false
+	end
+
+	function tok_prop:isok()
+		return true
+	end
+
 	function tok_prop:nextws()
 		return lm(self.idx+1)--(pos or 1))
 	end

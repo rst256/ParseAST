@@ -70,35 +70,49 @@ function __rule_mt.__le(a, b) -- a <= b
 end
 
 function __rule_mt:__bxor(that)
-	local function alt_le(a, b)
-		local self_alt, that_alt = a:toalt(), b:toalt()
-		for i=1, #that_alt do
-			for j=1, #self_alt do
-				if self_alt[j]==that_alt[i] then
-					return true
-				end
-			end
-		end
-		return false
-	end
-
-	if self==that then return true end
-	local self_seq, that_seq = self:toseq(), that:toseq()
-	if #self_seq>#that_seq then return false end
-	for k=1, #self_seq do
-			if not alt_le(self_seq[k], that_seq[k]) then return false end
-	end
-
-	return true
+	return self:wrapper(function(rule, tok0)
+		local tok, obj = rule(tok0)
+		if tok and (that(tok))~=nil then return else return tok, obj end
+	end)
 end
 
+RulesCallStack = setmetatable({},{
+	__call=function(self, idx) return self[#self+(idx or 0)] end
+})
+
+local opt_counter, alt_counter = 0, 0
 local function rule_mt(mt)
 	for k,v in pairs(__rule_mt) do
 		if not mt[k] then mt[k]=v end
 	end
 	local old_call = mt.__call
 	mt.__call=function(self, idx, ...)
+--		if not self.rule_type then
+----			print(self)
+--		elseif self.rule_type=='opt' or self.rule_type:match'^List1' then
+--			opt_counter=opt_counter+1
+--		elseif self.rule_type=='alt' then
+--			table.insert(RulesCallStack, {})
+--			alt_counter=alt_counter+1
+--		end
+--		local prev_error_mode = error_mode
 		local i, c = old_call(self, idx, ...)
+--		if not self.rule_type then
+--		elseif self.rule_type=='opt' or self.rule_type:match'^List1' then
+--			opt_counter=opt_counter-1
+--		elseif self.rule_type=='alt' then
+--			alt_counter=alt_counter-1
+--			if i==nil and opt_counter==0 then
+--				if #RulesCallStack==1 and #RulesCallStack()>0 then
+--					io.write(table.concat(RulesCallStack(), '\n'))
+--				elseif #RulesCallStack()>0 then
+--					table.insert(RulesCallStack(-1), '\t'..table.concat(RulesCallStack(), '\n\t'))
+--				end
+--			end
+--			table.remove(RulesCallStack)
+--		end
+
+--		error_mode=prev_error_mode
 		if i~=nil and self.onMatch then
 			local r, err = self:onMatch(c, idx, i)
 			if r==false then error(err) end
@@ -134,8 +148,17 @@ function newRule(constructor, parser, methods)
 	})
 end
 
+local error_mode = {}
+
 function Rule:error(idx, ...)
-	print(idx.locate, 'parse error', ...)
+	if opt_counter~=0 then
+		return
+	elseif alt_counter~=0 then
+		table.insert(RulesCallStack(),
+			idx.locate..' parse error '..table.concat({...}, '\t'))
+	else
+--		print(idx.locate, 'parse error', ...)
+	end
 end
 
 
@@ -316,7 +339,7 @@ function Rule:opt(def_value)
 	}, { __index=ProxyRule }),
 	__call=function(self,  idx)
 		local i, v = self.rule( idx)
-		if not i then return idx, self.def_value else return i, v end
+		if i==nil then return idx, self.def_value else return i, v end
 	end})
 end
 
@@ -367,7 +390,7 @@ function Alt(...)
 --				return index[self]..': '..(s:gsub('%s*| $', ''))
 			end,
 			__index=setmetatable({
-				rule_type='Alt',
+				rule_type='alt',
 				prefixof=function(self, that)
 					if self==that then return true, 0 end
 					for k,v in ipairs(self) do
@@ -408,12 +431,23 @@ function Alt(...)
 			}, { __index=Rule }),
 			__call=function(self,  idx)
 				local i, ov
+--				_ENV = setmetatable({ error_mode={} }, { __index=_ENV })
+--				local prev_error_mode = error_mode
+--				if error_mode~=false then error_mode = {} end
 				for k, v in ipairs(self) do
 					i, ov = v(idx)
 					if i~=nil then
-						if ov==nil then	return i, k else return i, ov end
+--						error_mode=prev_error_mode
+						if ov==nil then
+							return i, k
+						else
+--							if self.capt_mt then setmetatable(ov, self.capt_mt) end
+							return i, ov
+						end
 					end
 				end
+--				if error_mode~=false then print(table.concat(error_mode, '\n')) end
+--				error_mode=prev_error_mode
 				return
 			end
 		})
@@ -422,9 +456,9 @@ end
 function Seq(first, ...)
 --	assert(first)
 	local r = { first, ... }
-	for k,v in ipairs(r) do
-		assert(v, k)
-	end
+--	for k,v in ipairs(r) do
+--		assert(v, k)
+--	end
 	return setmetatable(r, rule_mt{
 	__tostring=function(self)
 		return 'seq'
@@ -511,6 +545,7 @@ function Seq(first, ...)
 			end
 			local i, ov = v(idx)
 			if i==nil then
+				self:error(idx, '`'..tostring(v)..'` expected')
 				return --false, -100*k
 			end
 			if type(v)=='table' and v.capt_name then
@@ -536,6 +571,7 @@ function List(items)
 	end,
 	__index=setmetatable({
 		rule_type='List',
+		opt=function(self, a) self.optional=a or 0 return self end,
 		subset=function(self, a) return self.items:subset(a) end,
 		raweq=function(self, a) return self.items==a.items end,
 		resolve=function(self, gmr)
@@ -556,7 +592,12 @@ function List(items)
 			len=len+1
 			idx=i
 		end
-		if #new==0 then return idx, len end
+		if #new==0 then
+			if len==0 then
+				if self.optional~=nil then return idx, self.optional else return end
+			end
+			return idx, len
+		end
 		return compact_capt(self, idx, new)
 	end})
 end
@@ -705,9 +746,13 @@ function lexeme(p)
 		__call=function(self, tok)
 			if tok and tok.lexeme==self.pattern then
 				if self.is_capture then
-				return tok.next or false, tok
-			else
-				return tok.next or false
+					if self.capt_mt then
+						return tok.next or false, setmetatable({ tok=tok }, self.capt_mt)
+					else
+						return tok.next or false, tok
+					end
+				else
+					return tok.next or false
 				end
 			end
 		end
@@ -853,6 +898,7 @@ Precedence = newRule(
 		end
 	end,
 	{--self.value:subset(a)
+		rule_type='Precedence',
 		subset=function(self, a) return false end,
 		raweq=function(self, a)
 			if getmetatable(a)==getmetatable(self) then return self.value==a.value end
@@ -887,12 +933,18 @@ Wrap = newRule(
 		local end_tok = self.close(close_tok)
 		if end_tok==nil then
 			return self:error(close_tok,
-				'close wrap `'..tostring(self.open)..'` expected')
+				'close wrap `'..tostring(self.close)..'` expected after '..
+				tostring(close_tok))
 		end
-
+		if self.capt_mt then
+			return end_tok, setmetatable({ body=body_value }, self.capt_mt)
+--		else
+--			return tok.next or false, tok
+		end
 		return end_tok, body_value
 	end,
 	{
+		rule_type='Wrap',
 		subset=function(self, a) return self.body:subset(a) end,
 		raweq=function(self, a)
 			if getmetatable(a)==getmetatable(self) then return self.body==a.body end
@@ -905,6 +957,9 @@ Wrap = newRule(
 	}
 )
 
+function WrapAlt(open, body, close)
+	return Alt(body, Wrap(open, body, close))
+end
 
 Ident = lexeme'ident'--ptrn'([%a_][%a%d_]*)%f[^%a%d_]'
 --debug.setmetatable(''', rule_mt{})
@@ -921,13 +976,13 @@ function Grammar(root)
 	local forward_rules = {}
 	return setmetatable({}, {
 		__index=function(self, name)
---			local forward_rule = forward_rules[name]
---			if not forward_rule then
---				forward_rule = setmetatable({ name=name }, gmr_rule_mt)
---				forward_rules[name] = forward_rule
---			end
---			return forward_rule
-			return setmetatable({ forward=name }, rule_mt{})
+			local forward_rule = forward_rules[name]
+			if not forward_rule then
+				forward_rule = setmetatable({ forward=name }, rule_mt{})
+				forward_rules[name] = forward_rule
+			end
+			return forward_rule
+--			return setmetatable({ forward=name }, rule_mt{})
 		end,
 		__newindex=function(self, name, rule)
 			rule.name=name

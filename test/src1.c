@@ -12,7 +12,7 @@ int * ip(const char *c_ptr){
 }
 char ip(int c){
 	assert(c<255);
-	return (char)c;
+	return (char*)&c;
 }
 char[30]  str;
 int _sizeof_str=sizeof(str);

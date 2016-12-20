@@ -2,18 +2,22 @@ dofile'keyword.lua'
 
 require'parser'
 gmr=Grammar'Chunks'
---LValue = ListSep(Ident^'id', lexeme' .'):tmpl'${.}'
-_LValue = Alt(Seq(Ident, lexeme' [',
---	(lexeme'int'),
-	gmr.Expr,
-lexeme' ]'):tmpl'$1[$2]', Ident)
-LValue = Alt(_LValue)
-LValue:insert(
-	Seq(_LValue, lexeme' .', LValue):tmpl'$1.$2'
-)
 
+--_LValue = Alt(Seq(Ident, lexeme' [', gmr.Expr, lexeme' ]'):tmpl'$1[$2]', Ident)
 
-FuncIdent=LValue
+--	Seq(_LValue, lexeme' .', gmr.LValue):tmpl'$1.$2',
+--	_LValue
+--)
+gmr.LValue = ListSep( Alt(
+		Seq(Ident, lexeme' [', gmr.Expr, lexeme' ]'):tmpl'$1[$2]',
+--		Seq(Ident, lexeme' (', gmr.args, lexeme' )'):tmpl'$1($2)',
+		Ident
+	), lexeme' .'
+
+):tmpl'${.}'
+--print(lexeme' ]')
+
+FuncIdent=gmr.LValue
 
 if StrongTypeDeclaration then
 	TypeIdent = newRule(
@@ -30,25 +34,25 @@ else
 end
 
 
-_TypeExpr = Alt(TypeIdent)
+--_TypeExpr = Alt(gmr.ComplexType, TypeIdent)
 --_TypeExprArray = Alt(Seq(lexeme' [', (lexeme'int'), lexeme' ]'):opt(false)^'ArrayDim')
-TypeExpr = Seq(
+gmr.TypeExpr = Seq(
 	(kwrd'const'):opt(false)^'Const',
-	_TypeExpr^'BaseType',
+	Alt(gmr.ComplexType, TypeIdent)^'BaseType',
 	Wrap(lexeme' [', gmr.Expr, lexeme' ]'):opt(false)^'ArrayDim',
-	List(lexeme' *')^'Pointer'
+	List(lexeme' *'):opt()^'Pointer'
 )
 
 
 
 Value = Alt(
-	Seq(lexeme' (', TypeExpr, lexeme' )', gmr.Expr)
+	Seq(lexeme' (', gmr.TypeExpr, lexeme' )', gmr.Expr)
 		:tmpl'($1)$2',
 	Seq(FuncIdent, lexeme' (', gmr.args, lexeme' )'):tmpl'$1($2)',
 
 	lexeme'int',
 	lexeme'string',
-	LValue^'lval',
+	gmr.LValue^'lval',
 	Seq( lexeme' (', gmr.Expr^'Cond', lexeme' ?',
 		gmr.Expr^'Then', lexeme' :', gmr.Expr^'Else', lexeme' )'
 	):tmpl' ($Cond ? $Then : $Else) ',
@@ -58,17 +62,17 @@ gmr.Value=Value
 
 
 
-TypeExpr.capt_mt = {}--__index={} }
+gmr.TypeExpr.capt_mt = {}--__index={} }
 local TypeExprProp = {}
 
-function TypeExpr.capt_mt:__tostring()
+function gmr.TypeExpr.capt_mt:__tostring()
 	return (self.Const and 'const ' or '')..
 		tostring(self.BaseType)..
 		(self.ArrayDim and '['..tostring(self.ArrayDim)..']' or '')..
 		string.rep('*', self.Pointer)
 end
 
-function TypeExpr:onMatch(obj, tok0, tok)
+function gmr.TypeExpr:onMatch(obj, tok0, tok)
 	local sym = tok0.scope:find(tostring(obj.BaseType))
 	if not sym then
 		obj.sym = obj.BaseType.sym
@@ -89,41 +93,34 @@ function TypeExprProp:sizeof()
 	end
 	return size
 end
-function TypeExpr.capt_mt:__index(name)
+function gmr.TypeExpr.capt_mt:__index(name)
 		local prop_getter = TypeExprProp[name]--, 'tok.`'..tostring(name)..'`')
 		if prop_getter then return prop_getter(self) end
 end
 
 
-UnExpr = Alt(Value)
-UnExpr:insert(
-	Seq(
-		Alt(lexeme'-', lexeme'++', lexeme'--',
-			lexeme'*', lexeme'&', lexeme'!'),
-		UnExpr):tmpl'$1($2)',
-	Seq(Value, Alt(lexeme'++', lexeme'--')):tmpl'($1)$2',
-	Wrap(Seq(kwrd' sizeof', lexeme' ('), Alt(TypeExpr, Ident), lexeme' )'):hndl(function(tok0, tok, obj)
+gmr.UnExpr = Alt(
+	Wrap(Seq(kwrd' sizeof', lexeme' ('), Alt(gmr.TypeExpr, Ident), lexeme' )')
+	:hndl(function(tok0, tok, obj)
 		if tok~=nil then
---			local t = assert(tok0.scope:find(tostring(obj.Expr)),
---				tostring(obj.Expr)).type
 			if obj.sizeof then return tok, obj.sizeof end
 			local t = assert(tok.scope:find(tostring(obj)),
 				tostring(obj))--.type
---			local t = assert(obj.type, tostring(obj))
 			return tok, t and t.sizeof or -1
 		end
---		return tok, obj
-	end)
+	end),
+	Seq(Value, Alt(lexeme'++', lexeme'--')):tmpl'($1)$2',
+	Seq(
+		Alt(lexeme'-', lexeme'++', lexeme'--',
+			lexeme'*', lexeme'&', lexeme'!'),
+	gmr.UnExpr):tmpl'$1($2)',
+	Value
 )
 
---Value:add(
---	Seq( lexeme' (', gmr.Expr^'Cond', lexeme' ?',
---		gmr.Expr^'Then', lexeme' :', gmr.Expr^'Else', lexeme' )'
---	):tmpl' ($Cond ? $Then : $Else) ',
---	Wrap(lexeme' (', gmr.Expr, lexeme' )')
---)
 
-Expr = Precedence(UnExpr,
+
+
+gmr.Expr = Precedence(gmr.UnExpr,
 	lexeme'^',
 	Alt( lexeme'*', lexeme'/', lexeme'%'),
 	Alt( lexeme'+', lexeme'-' ),
@@ -144,81 +141,74 @@ Alt(lexeme'>>', lexeme'<<'),
 
 	Alt( lexeme'||', lexeme'&&' )--	lexeme'&',
 )
-gmr.Expr=Expr
+--gmr.Expr=gmr.Expr
 
 
---Value:add( Seq(lexeme' (', Expr, lexeme' )'):tmpl'( $1 )' --, lexeme'(%b{})'
+--Value:add( Seq(lexeme' (', gmr.Expr, lexeme' )'):tmpl'( $1 )' --, lexeme'(%b{})'
 --)
 
 
-local args = ListSepLast(Expr, lexeme' ,', lexeme'...'):tmpl'${, }':opt('')
-gmr.args=args
+gmr.args = ListSepLast(gmr.Expr, lexeme' ,', lexeme'...'):tmpl'${, }':opt('')
 
-local var_list = ListSepLast(
-	Seq(TypeExpr, Ident):tmpl'$1 $2',
+
+gmr.var_list = ListSepLast(
+	Seq(gmr.TypeExpr, Ident):tmpl'$1 $2',
 	lexeme' ,', lexeme'...'
 ):tmpl'${, }':opt('')
 
-local var_list_decl = ListSepLast(
-	Seq(TypeExpr, Ident:opt('')):tmpl'$1 $2',
+gmr.var_list_decl = ListSepLast(
+	Seq(gmr.TypeExpr, Ident:opt('')):tmpl'$1 $2',
 	lexeme' ,', lexeme'...'
 ):tmpl'${, }':opt('')
 
 
 
-Assign = Seq(
-	LValue^'Var',
+gmr.Assign = Seq(
+	gmr.LValue^'Var',
 	Alt(lexeme'assign',
 		lexeme'+=', lexeme'-=', lexeme'*=', lexeme'/=', --lexeme'%=',
 		lexeme'&=', lexeme'|='--, lexeme'^='
 	)^'AssignOp',
-	Expr^'Value',	lexeme' ;'
+	gmr.Expr^'Value',	lexeme' ;'
 ):tmpl'$Var $AssignOp $Value;'
 
 
 
---Value:insert(
---	Seq(FuncIdent, lexeme' (', args, lexeme' )'):tmpl'$1($2)',
---	Seq(lexeme' (', TypeExpr, lexeme' )', Expr)
---		:tmpl'($1)$2'
---)
 
 
 
 
-
-Define = Seq(
---	Alt(TypeExpr, Define),
-	TypeExpr^'Type',
+gmr.Define = Seq(
+--	Alt(gmr.TypeExpr, gmr.Define),
+	gmr.TypeExpr^'Type',
 	ListSep(Alt(
-			Seq(	Ident^'Var', lexeme' assign', Expr^'Value'):tmpl'$Var=$Value', Ident
+			Seq(	Ident^'Var', lexeme' assign', gmr.Expr^'Value'):tmpl'$Var=$Value', Ident
 		), lexeme' ,'):tmpl'${, }'^'Vars', lexeme' ;'
 ):tmpl'$Type $Vars;'-- = $Values
 
-Label = Seq(Ident, lexeme' :'):tmpl'$1:'
-Goto = Seq(kwrd' goto', Ident, lexeme' ;'):tmpl'goto $1;'
-local Return = Seq(kwrd' return', Expr, lexeme' ;'):tmpl'return $1;'
-local Break = Seq(kwrd' break', lexeme' ;'):tmpl'break;'
-local Continue = Seq(kwrd' continue', lexeme' ;'):tmpl'goto __continue__;'
-local Call = Seq(FuncIdent,
-	Seq(lexeme' (', args, lexeme' )'),
+gmr.Label = Seq(Ident, lexeme' :'):tmpl'$1:'
+gmr.Goto = Seq(kwrd' goto', Ident, lexeme' ;'):tmpl'goto $1;'
+gmr.Return = Seq(kwrd' return', gmr.Expr, lexeme' ;'):tmpl'return $1;'
+gmr.Break = Seq(kwrd' break', lexeme' ;'):tmpl'break;'
+gmr.Continue = Seq(kwrd' continue', lexeme' ;'):tmpl'goto __continue__;'
+gmr.Call = Seq(FuncIdent,
+	Seq(lexeme' (', gmr.args, lexeme' )'),
 	lexeme';'
 ):tmpl'$1($2);'
 
 
-Chunk = Alt(
-	Label, Goto, Define, Return, Continue, Break, Call
-	, Assign
-
+gmr.Chunk = Alt(
+	gmr.Label, gmr.Goto, gmr.Define, gmr.Return, gmr.Continue, gmr.Break,
+	gmr.Call, gmr.Assign, gmr.If, gmr.For, gmr.FuncDecl, gmr.FuncDef
 )
 
-Chunks = List(Chunk):tmpl'${\n}'
-gmr.Chunks=Chunks
+gmr.Chunks = List(gmr.Chunk):tmpl'${\n}'
 
-Block = Alt(
+
+gmr.Block = Alt(
 	lexeme';',
-	Chunk,
-	Seq( lexeme' {', List(Chunk):tmpl'\t${\n}',	lexeme' }'):tmpl'{\n$1\n}'
+	gmr.Chunk,
+	Seq( lexeme' {', List(gmr.Chunk):tmpl'\t${\n}',	lexeme' }'):tmpl'{\n$1\n}'
 )
 
 local function Scoped(r)
@@ -230,20 +220,20 @@ local function Scoped(r)
 	end)
 end
 
-ComplexType_Member = Seq(
-	TypeExpr^'Type',
+gmr.ComplexType_Member = Seq(
+	gmr.TypeExpr^'Type',
 	ListSep(Alt(
-			Seq(Ident^'Var', lexeme' :', Expr^'BitField'):tmpl'$Var:$BitField', Ident
+			Seq(Ident^'Var', lexeme' :', gmr.Expr^'BitField'):tmpl'$Var:$BitField', Ident
 		), lexeme' ,'):tmpl'${, }'^'Vars', lexeme' ;'
 ):tmpl'$Type $Vars;'
 
-ComplexType = Seq( Alt(kwrd'struct', kwrd'union')^'ComplexType',
+gmr.ComplexType = Seq( Alt(kwrd'struct', kwrd'union')^'ComplexType',
 	Ident:opt(false)^'Name',
-	lexeme' {',	(List(ComplexType_Member):tmpl'\t${\n}')^'Body',--Scoped
+	lexeme' {',	(List(gmr.ComplexType_Member):tmpl'\t${\n}')^'Body',--Scoped
 	lexeme' }'
 ):tmpl'$ComplexType $Name {\n$Body\n}'
 
-_TypeExpr:insert(ComplexType)
+--_TypeExpr:insert(gmr.ComplexType)
 
 
 local ScopedFuncOpen = (lexeme' ('):hndl(function(tok0)
@@ -252,33 +242,33 @@ end)
 local ScopedElseOpen = (kwrd' else'):hndl(function(tok0)
 	tok0.scope:sub()
 end)
-local ScopedBlock = (Block):hndl(function(tok0)
+local ScopedBlock = (gmr.Block):hndl(function(tok0)
 	tok0.scope:up()
 end)
 
-If = Seq(kwrd' if', ScopedFuncOpen, Expr^'If', lexeme' )',
+gmr.If = Seq(kwrd' if', ScopedFuncOpen, gmr.Expr^'If', lexeme' )',
 	ScopedBlock^'Then',
 	Seq(ScopedElseOpen, ScopedBlock ):tmpl'else $1':opt('')^'Else'
 ):tmpl'if($If) $Then $Else'
 
 
-FuncDef = Seq(TypeExpr^'ReturnType',
+gmr.FuncDef = Seq(gmr.TypeExpr^'ReturnType',
 	Ident^'FuncName',
-	lexeme' (', var_list^'Args', lexeme' )',
-	Seq(lexeme' {', List(Chunk):tmpl'${\n}', lexeme' }'):tmpl'{\n\t$1\n}'^'Body'
+	lexeme' (', gmr.var_list^'Args', lexeme' )',
+	Seq(lexeme' {', List(gmr.Chunk):tmpl'${\n}', lexeme' }'):tmpl'{\n\t$1\n}'^'Body'
 ):tmpl'$ReturnType $FuncName($Args)$Body'
 
-FuncDecl = Seq(TypeExpr^'ReturnType',
+gmr.FuncDecl = Seq(gmr.TypeExpr^'ReturnType',
 	Ident^'FuncName',
-	lexeme' (', var_list_decl^'Args', lexeme' )',
+	lexeme' (', gmr.var_list_decl^'Args', lexeme' )',
 	lexeme' ;'
 ):tmpl'$ReturnType $FuncName($Args);'
 
 
-local For = Seq(kwrd' for', ScopedFuncOpen,
-	Alt(Define, Assign, lexeme' ;')^'Init',
-	Expr:opt('')^'Cond', lexeme' ;',
-	Expr:opt('')^'Iter',
+gmr.For = Seq(kwrd' for', ScopedFuncOpen,
+	Alt(gmr.Define, gmr.Assign, lexeme' ;')^'Init',
+	gmr.Expr:opt('')^'Cond', lexeme' ;',
+	gmr.Expr:opt('')^'Iter',
 	lexeme' )', ScopedBlock^'Body'
 ):tmpl'for($Init; $Cond; $Iter)$Body'
 
@@ -286,7 +276,7 @@ local For = Seq(kwrd' for', ScopedFuncOpen,
 
 
 
-Chunk:add(If, For, FuncDecl, FuncDef)--, Func, ChunkFn, Repeat,
+--gmr.Chunk:add(gmr.If, gmr.For, gmr.FuncDecl, gmr.FuncDef)--, Func, ChunkFn, Repeat,
 
 
 

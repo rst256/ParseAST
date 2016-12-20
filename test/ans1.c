@@ -4,8 +4,8 @@ if((i <= 0)) {
 	i = 0;
 	if((i2 < 50)) {
 		i2 += 1;
-		if((i2 / 2)) goto l1; 
-	} 
+		if((i2 / 2)) goto l1;
+	}
 	if(i3) ; else i3 = 1;
 } else {
 	i -= 1;
@@ -23,7 +23,7 @@ int* ip(const char* c_ptr){
 }
 char ip(int c){
 	assert((c < 255));
-	return (char)c;
+	return (char*)&(c);
 }
 char[30] str;
 int _sizeof_str=-1;

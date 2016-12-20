@@ -56,25 +56,25 @@ BinOp.type={}
 --end
 
 
-function Assign:onMatch(obj, tok0, tok)
+function gmr.Assign:onMatch(obj, tok0, tok)
 	local sym = tok0.scope:find(tostring(obj.Var))
 	if sym and sym.kind=='var' then
 	end
 end
 
-function Define:onMatch(obj, tok0, tok)
+function gmr.Define:onMatch(obj, tok0, tok)
 	for _, v in ipairs(obj.Vars) do
 		tok0.scope:define(tostring(v.Var or v), { kind='var', type=obj.Type })
 	end
 end
 
-function FuncDecl:onMatch(obj, tok0, tok)
+function gmr.FuncDecl:onMatch(obj, tok0, tok)
 	tok0.scope:define(tostring(obj.FuncName), {
 		kind='func', rtype=obj.ReturnType, args=obj.Args
 	})
 end
 
-function FuncDef:onMatch(obj, tok0, tok)
+function gmr.FuncDef:onMatch(obj, tok0, tok)
 	local sym=tok0.scope:find(tostring(obj.FuncName))
 	if sym then
 
@@ -85,7 +85,7 @@ function FuncDef:onMatch(obj, tok0, tok)
 	end
 end
 
-function ComplexType:onMatch(obj, tok0, tok)
+function gmr.ComplexType:onMatch(obj, tok0, tok)
 
 		local sym = tok0.scope:define(tostring(obj.Name), {
 			kind='type', name=obj.Name, ComplexType=obj.ComplexType
@@ -121,15 +121,15 @@ local function test(f)
 	lm=lex_mem(lexer.new(io.readall('test/src'..f..'.c')))
 	lm.scope = scope:sub()
 	local clock0=os.clock()
-	i, new = Chunks( lm())
+	i, new = gmr.Chunks( lm())
 	local clock=os.clock()-clock0
-	local s = tostring(new)
+	local s = tostring(new):gsub('%s*\n', '\n')
 	local s1 = io.readall('test/req'..f..'.c', false)
 	io.writeall('test/ans'..f..'.c', s)
 --	print(s)
 --	assert(s:gsub('%s*\n', '\n')==s1)
 --	if s~=s1 then
-	print(s:gsub('%s*\n', '\n')==s1 and 'ok  ' or 'fail', 'test/src'..f..'.c', clock)
+	print(s==s1 and 'ok  ' or 'fail', 'test/src'..f..'.c', clock)
 end
 
 local function test_expr(ll, l)
@@ -173,7 +173,7 @@ end
 gmr()
 gmr'Expr'
 gmr'Value'
-assert(Goto:check())
+assert(gmr.Goto:check())
 test_expr'5+6+7+8*9/2-3+4'
 test_expr'3/2*5+6+7+8*9/2-3+4'
 test_expr'3/(2*5)+99'
@@ -183,64 +183,109 @@ test'1'
 test'2'
 
 
+
+
+local g=Grammar('rules')
+
+g.rules=List(g.rule):tmpl'${\n}'
+
+--g.def=Seq(lexeme' :', lexeme' assign')
+
+g.rule=Seq(
+	Ident^'Name', lexeme' :=', --g.def,, lexeme' ;'
+	g.ra^'Body')
+	:tmpl'$Name := $Body;'
+
+g.ra=
+	Precedence(g.rs, lexeme'/')
+--
+
+
+g.r= Alt(
+	Wrap(lexeme' (', g.ra, lexeme' )'),
+	Wrap(lexeme' [', g.ra, lexeme' ]')
+		:tmpl(function(s) return '('..tostring(s.body)..'):opt()' end),
+	Seq(Ident^'Field', lexeme' assign', g.r^'R'):tmpl'$R^"$Field"',
+	Ident~lexeme' :=',
+	lexeme'string':tmpl(function(s) return 'lexeme'..tostring(s.tok) end)
+
+)
+
+g.rs=Alt(
+
+	List(g.r):tmpl'Seq(${, })'
+
+)
+
+
+	lm=lex_mem(lexer.new[[
+		r1:= [f0=('r0' f1=r1)/ 'r0']/[
+		r0:=
+	]])
+	lm.scope = scope:sub()
+g() g'rule'
+local i, new = g.rules(lm())
+print(new)
+print(i)
+
 os.exit()
 print'\nA:iC	C:iA	A:iA	C:iC'
 print(
-	Assign:intersect(Chunks), Chunks:intersect(Assign),
-	Assign:intersect(Assign),	Chunks:intersect(Chunks)
+	Assign:intersect(gmr.Chunks), gmr.Chunks:intersect(Assign),
+	Assign:intersect(Assign),	gmr.Chunks:intersect(gmr.Chunks)
 )
 
 print'\nA>=C	C>=A	C==A	A==C	A>=A	C>=C	A<=A	C<=C'
-print(	Assign>=Chunks, Chunks>=Assign,
-	Chunks==Assign, Assign==Chunks,
-	Assign>=Assign, Chunks>=Chunks,
-	Assign<=Assign, Chunks<=Chunks
+print(	Assign>=gmr.Chunks, gmr.Chunks>=Assign,
+	gmr.Chunks==Assign, Assign==gmr.Chunks,
+	Assign>=Assign, gmr.Chunks>=gmr.Chunks,
+	Assign<=Assign, gmr.Chunks<=gmr.Chunks
 )
 --print'true	true	false	false	true	true	true	true'
 
 print'\nA>C	C>A	A<C	C<A	C<A	A<C	A>A	C>C'
 print(
-	Assign>Chunks, Chunks>Assign, Assign<Chunks, Chunks<Assign,
-	Chunks<Assign, Assign<Chunks,
+	Assign>gmr.Chunks, gmr.Chunks>Assign, Assign<gmr.Chunks, gmr.Chunks<Assign,
+	gmr.Chunks<Assign, Assign<gmr.Chunks,
 
-	Assign>Assign, Chunks>Chunks
+	Assign>Assign, gmr.Chunks>gmr.Chunks
 )
 print'true	false	false	true	true	false	true	true'
 
 print'\n!A>=C	!C>=A	!C==A	!A==C	!A>=A	!C>=C	!A<=A	!C<=C'
 print(
-	not (Assign>=Chunks), not (Chunks>=Assign),
-	not (Chunks==Assign), not (Assign==Chunks),
-	not (Assign>=Assign), not (Chunks>=Chunks),
-	not (Assign<=Assign), not (Chunks<=Chunks)
+	not (Assign>=gmr.Chunks), not (gmr.Chunks>=Assign),
+	not (gmr.Chunks==Assign), not (Assign==gmr.Chunks),
+	not (Assign>=Assign), not (gmr.Chunks>=gmr.Chunks),
+	not (Assign<=Assign), not (gmr.Chunks<=gmr.Chunks)
 )
 
 print'\nA:sC\tC:sA'
-print(Assign:subset(Chunks), Chunks:subset(Assign) )
+print(Assign:subset(gmr.Chunks), gmr.Chunks:subset(Assign) )
 
 
 
 print'\nE:sC	C:sE	E:sE	C:sC'
 print(
-	Expr:subset(Chunks), Chunks:subset(Expr),
-	Expr:subset(Expr),	Chunks:subset(Chunks)
+	Expr:subset(gmr.Chunks), gmr.Chunks:subset(Expr),
+	Expr:subset(Expr),	gmr.Chunks:subset(gmr.Chunks)
 )
 
 
 print'\nE:iC	C:iE	E:iE	C:iC'
 print(
-	Expr:intersect(Chunks), Chunks:intersect(Expr),
-	Expr:intersect(Expr),	Chunks:intersect(Chunks)
+	Expr:intersect(gmr.Chunks), gmr.Chunks:intersect(Expr),
+	Expr:intersect(Expr),	gmr.Chunks:intersect(gmr.Chunks)
 )
 
 
 
 print'\nE>=C	C>=E	C==E	E==C	E>=E	C>=C	E<=E	C<=C'
 print(
-	Expr>=Chunks, Chunks>=Expr,
-	Chunks==Expr, Expr==Chunks,
-	Expr>=Expr, Chunks>=Chunks,
-	Expr<=Expr, Chunks<=Chunks
+	Expr>=gmr.Chunks, gmr.Chunks>=Expr,
+	gmr.Chunks==Expr, Expr==gmr.Chunks,
+	Expr>=Expr, gmr.Chunks>=gmr.Chunks,
+	Expr<=Expr, gmr.Chunks<=gmr.Chunks
 )
 
 
