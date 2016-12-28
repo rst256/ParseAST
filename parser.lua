@@ -49,6 +49,14 @@ local __rule_mt = {
 --	return self:nm(name)
 --end
 
+function __rule_mt.__div(a, b)
+	return Alt(a, b)
+end
+
+function __rule_mt.__mul(a, b)
+	return ListSep(a, b)
+end
+
 function __rule_mt:__eq(that)
 	if rawequal(self, that) then return true end
 	if not self.raweq then error(tostring(self)) end
@@ -291,7 +299,8 @@ function Rule:hndl(fn, low)
 		local i, a = self.rule(idx)
 		if i~=nil then
 			local i2, a2 = self.handler_fn(idx, i, a)
-			return i2 or i, a2 or a
+			if i2==false then return end
+			return i, i2 or a--i2 or i, a2 or a
 		end
 	end})
 end
@@ -571,6 +580,9 @@ function List(items)
 	end,
 	__index=setmetatable({
 		rule_type='List',
+		capt_mt={ __tostring=function(self)
+			return '\n  '..table.concat(self, '\n  ')..'\n'
+		end },
 		opt=function(self, a) self.optional=a or 0 return self end,
 		subset=function(self, a) return self.items:subset(a) end,
 		raweq=function(self, a) return self.items==a.items end,
@@ -605,7 +617,10 @@ end
 function ListSep(items, sep)
 	local r = {
 		items=(items),
-		sep=sep
+		sep=sep,
+		capt_mt={ __tostring=function(self)
+			return table.concat(self, tostring(sep)..' ')
+		end }
 	}
 
 	return setmetatable(r, rule_mt{
@@ -621,7 +636,6 @@ function ListSep(items, sep)
 			gmr(self, 'items', 'sep')
 		end,
 		subset=function(self, a) return self.items:subset(a) end,
-		capt_mt={ __tostring=function(self) return table.concat(self, ' ') end }
 	}, { __index=Rule }),
 	__call=function(self,  idx)
 		local new = {}
@@ -759,6 +773,39 @@ function lexeme(p)
 	})
 end
 
+function usrkwrd(p)
+	local r = {
+		usrkwrd=p:match'%s*(.+)',
+		is_capture=tostring(p):sub(1,1)~=' '
+	}
+
+	return setmetatable(r, rule_mt{
+		__tostring=function(self)
+			return assert(self.usrkwrd)
+		end,
+		__index=setmetatable({
+			rule_type='usrkwrd',
+			raweq=function(a, b)
+				return (getmetatable(a)==getmetatable(b)) and a.usrkwrd==b.usrkwrd
+			end,
+			subset=function() return false end,
+		}, { __index=Rule }),
+		__call=function(self, tok)
+			if tok and tok.lexeme==lexemes'ident' and tok.str==self.usrkwrd then
+				if self.is_capture then
+					if self.capt_mt then
+						return tok.next or false, setmetatable({ tok=tok }, self.capt_mt)
+					else
+						return tok.next or false, tok
+					end
+				else
+					return tok.next or false
+				end
+			end
+		end
+	})
+end
+
 function kwrd(p)
 	local r = {
 		pattern=assert(tonumber(tonumber(p) or keywords[p:match'%s*(.+)']), p),
@@ -804,33 +851,26 @@ end
 
 
 
-local __value
-function Precedence0(items, op1, ...)
-	__value=__value or items
-	if not op1 then return items end
-	local r
-	if type(op1)=='table' and op1.op_ptrn then
-		if op1.rassoc then
-			r = Seq(items, op1.op_ptrn, __value)
+
+function typeof(self)
+	local t = type(self)
+	if t=='table' then
+		local mt = getmetatable(self)
+		if type(mt)=='table' then
+			return setmetatable(mt, { __index=function() return false end })
 		else
-			r = ListSep(items, op1.op_ptrn, op1.recursive)
-		end
-		if op1.tmpl then
-			r:tmpl(op1.tmpl)
+			return setmetatable({}, { __index=function() return false end })
 		end
 	else
-		r = ListSep(items, op1)
+		return setmetatable({ [t]=true }, { __index=function() return false end })
 	end
-	r.capt_mt=r.capt_mt or {}
-	r.capt_mt.__tostring=function(capt)
-		if #capt>1 then return '('..table.concat(capt, ' ')..')' end
-		return table.concat(capt, ' ')
-	end
-	return Precedence0(r, ...)
 end
 
 BinOp = {}
-local binop_mt = { __index=BinOp }
+local binop_mt = {
+	__index=BinOp,
+	__metatable={ binop=true, expr=true },
+}
 
 function binop_mt:__tostring()
 	return '('..tostring(self.l)..' '..
@@ -839,8 +879,10 @@ end
 
 function binop_mt.__index:eval()
 	local o, l, r = tostring(self.op),
-		(tonumber(tostring(self.l)) or self.l:eval()),
-		assert(tonumber(tostring(self.r)) or self.r:eval())
+--		assert(tonumber(tostring(self.l)) or self.l:eval()),
+--		assert(tonumber(tostring(self.r)) or self.r:eval())
+		assert(typeof(self.l).expr and self.l:eval() or tonumber(tostring(self.l))),
+		assert(typeof(self.r).expr and self.r:eval() or tonumber(tostring(self.r)))
 	if o=='+'  then return l+r  end
 	if o=='-'  then return l-r  end
 	if o=='*'  then return l*r  end

@@ -116,7 +116,7 @@ function gmr.ComplexType:onMatch(obj, tok0, tok)
 end
 
 
-
+local fmt = '%.7s  %-40.40s  %10.10s    %-30.30s  %f'
 local function test(f)
 	lm=lex_mem(lexer.new(io.readall('test/src'..f..'.c')))
 	lm.scope = scope:sub()
@@ -146,25 +146,28 @@ local function test_expr(ll, l)
 		else
 			print('syntax error', l, clock)
 		end
+
 	else
 		local r = load('return '..ll, ll, 't', _G)()
 		local src = tostring(new)
 		local fn, err = load('return '..src, src, 't', _G)
 		if not fn then
-			print('syntax error', err, clock)
+			print('eval error', err, clock)
+			print(src)
 		else
 			local stat, res = pcall(fn)
 			if not stat then
 				print('runtime error', res)
 			elseif r==res then
 				local re = new:eval()
-				if r==re then
-					print('ok  ', l, (tostring(new):match('^%s*(.*)')), clock)
+				if typeof(re).expr then re2 = assert(load('return '..tostring(re):gsub('^%+', ''), ll..'\t'..tostring(re), 't', _G))() end
+				if r==re or r==re2 then
+					print(fmt:format('ok  ', (tostring(new):match('^%s*(.*)')), r, tostring(re), clock))
 				else
-					print('fail', l, (tostring(new):match('^%s*(.*)')), r, re, clock)
+					print(fmt:format('fail', (tostring(new):match('^%s*(.*)')), r, tostring(re), clock))
 				end
 			else
-				print('fail', l, (tostring(new):match('^%s*(.*)')), r, res, clock)
+				print(fmt:format('fail1', (tostring(new):match('^%s*(.*)')), r, tostring(re), clock))
 			end
 		end
 	end
@@ -178,55 +181,109 @@ test_expr'5+6+7+8*9/2-3+4'
 test_expr'3/2*5+6+7+8*9/2-3+4'
 test_expr'3/(2*5)+99'
 test_expr'6+7+8*9/2-3+4'
+i=9 j=-1
+test_expr'(2*3+i-2)*2*j+1'
+test_expr'(6+i-2)'
+test_expr'(2*3+i-2)*2*j+666'
+test_expr'(2*3+i-2)*2*j-666'
+test_expr'(2*3*i)*2*j+666'
+test_expr'(2*3*i)*2'
+test_expr'2-(2*3+i-2)+1'
+
+test_expr'2*3*i'
+test_expr'2*3*i*j'
+test_expr'2*3*i*j+3'
+
 
 test'1'
 test'2'
 
+os.exit()
 
 
+local g=require'parser-g'
+--Grammar('rules')
 
-local g=Grammar('rules')
+--g.rules=List(g.rule):tmpl'${\n}'
 
-g.rules=List(g.rule):tmpl'${\n}'
+----g.def=Seq(lexeme' :', lexeme' assign')
 
---g.def=Seq(lexeme' :', lexeme' assign')
+--g.rule=Seq(
+--	Ident^'Name', lexeme' :=', --g.def,, lexeme' ;'
+--	g.ra^'Body')
+--	:tmpl'$Name := $Body;'
 
-g.rule=Seq(
-	Ident^'Name', lexeme' :=', --g.def,, lexeme' ;'
-	g.ra^'Body')
-	:tmpl'$Name := $Body;'
-
-g.ra=
-	Precedence(g.rs, lexeme'/')
---
+--g.ra=
+--	Precedence(g.rs, lexeme'/')
+----
 
 
-g.r= Alt(
-	Wrap(lexeme' (', g.ra, lexeme' )'),
-	Wrap(lexeme' [', g.ra, lexeme' ]')
-		:tmpl(function(s) return '('..tostring(s.body)..'):opt()' end),
-	Seq(Ident^'Field', lexeme' assign', g.r^'R'):tmpl'$R^"$Field"',
-	Ident~lexeme' :=',
-	lexeme'string':tmpl(function(s) return 'lexeme'..tostring(s.tok) end)
+--g.r= Alt(
+--	Wrap(lexeme' (', g.ra, lexeme' )'),
+--	Wrap(lexeme' [', g.ra, lexeme' ]')
+--		:tmpl(function(s) return '('..tostring(s.body)..'):opt()' end),
+--	Seq(Ident^'Field', lexeme' assign', g.r^'R'):tmpl'$R^"$Field"',
+--	Ident~lexeme' :=',
+--	lexeme'string':tmpl(function(s) return 'lexeme'..tostring(s.tok) end)
 
-)
+--)
 
-g.rs=Alt(
+--g.rs=Alt(
 
-	List(g.r):tmpl'Seq(${, })'
+--	List(g.r):tmpl'Seq(${, })'
 
-)
+--)
 
 
 	lm=lex_mem(lexer.new[[
-		r1:= [f0=('r0' f1=r1)/ 'r0']/[
-		r0:=
+		expr:= binop value { '*'/'/', '+'/'-' }
+		value:= ('int' ',''int')/'int'/'string1'/call/'ident'/'string2'
+		_if:="if" expr "then" chunks "end"
+		chunks:=*chunk
+		assign:='ident' 'assign' expr
+		call:='ident' '(' (expr*' ,') ')'
+		chunk:=_if/assign/call
 	]])
 	lm.scope = scope:sub()
-g() g'rule'
-local i, new = g.rules(lm())
+--g() g'rule'
+
+local i, new = g.rules(lm())--lm())
 print(new)
 print(i)
+local gg=Grammar()
+local fn, err = load(tostring(new), '', 't', setmetatable({}, {
+	__index=function(self, name)
+		return _G[name] or gg[name]
+	end,
+	__newindex=function(self, name, value)
+		gg[name]=value
+	end,
+}))
+print(fn, err)
+
+local gg_res=fn()
+gg'expr' gg'chunks'
+print(gg)
+local lgg=lex_mem(lexer.new[[a='fjhfdjh'+
+		666,7*2-';'
+		if 6+7+8*9/2-3+4 then
+			b= 6+7+8*9/2-3+4
+			print(a, b)
+		end
+		c=88+rawlen(t)
+	]])
+print(gg.chunks(lgg()))
+
+mtmix=require'mtmix'
+local t_mt=mtmix.mtmix()
+
+local t=t_mt()--setmetatable({}, t_mt)
+function t_mt.ctor(...) return {...} end
+local t1=t_mt(1,20)
+print(t_mt.index)
+t_mt.index=print
+print(t.tf1)
+print(t[2], t1[2])
 
 os.exit()
 print'\nA:iC	C:iA	A:iA	C:iC'

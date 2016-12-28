@@ -249,7 +249,7 @@ int get_next_token(source * src, int mode) {
 		unsigned ch2=nextch(src);
 		switch (ch){
 			case '"': case '\'': 																									// string literal	
-				return parse_string_literal(src, ch) ? lexid_str : -3;
+				return parse_string_literal(src, ch) ? ch : -3;
 			case ',': case '?': case ';': case '$': case '@':							// single char tokens
 			case '[': case ']': case '{': case '}': case '(': case ')': 							// bracket tokens
 			case '#': case '\\': 

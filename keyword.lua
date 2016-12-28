@@ -12,8 +12,10 @@ lexemes = setmetatable({
 	["ident"] = 8193,
 	[32813] = "--",
 	["--"] = 32813,
-	[8194] = "string",
-	["string"] = 8194,
+	[39] = "string1",
+	["string1"] = 39,
+	[34] = "string2",
+	["string2"] = 34,
 	[8196] = "ml_comm",
 	["ml_comm"] = 8196,
 	[125] = "}",
@@ -94,6 +96,7 @@ lexemes = setmetatable({
 	["<="] = 16444,
 	[61] = "assign",
 	assign = 61,
+	['='] = 61,
 	[58] = ":",
 	[":"] = 58,
 	[59] = ";",
@@ -147,5 +150,6 @@ keywords = keyword_list([[
 	typedef struct union enum type
 		const static extern typeof sizeof
 		continue
+		then end
 ]], 300)
 
