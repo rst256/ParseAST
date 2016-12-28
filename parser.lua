@@ -93,34 +93,13 @@ local function rule_mt(mt)
 	for k,v in pairs(__rule_mt) do
 		if not mt[k] then mt[k]=v end
 	end
-	local old_call = mt.__call
-	mt.__call=function(self, idx, ...)
---		if not self.rule_type then
-----			print(self)
---		elseif self.rule_type=='opt' or self.rule_type:match'^List1' then
---			opt_counter=opt_counter+1
---		elseif self.rule_type=='alt' then
---			table.insert(RulesCallStack, {})
---			alt_counter=alt_counter+1
---		end
---		local prev_error_mode = error_mode
-		local i, c = old_call(self, idx, ...)
---		if not self.rule_type then
---		elseif self.rule_type=='opt' or self.rule_type:match'^List1' then
---			opt_counter=opt_counter-1
---		elseif self.rule_type=='alt' then
---			alt_counter=alt_counter-1
---			if i==nil and opt_counter==0 then
---				if #RulesCallStack==1 and #RulesCallStack()>0 then
---					io.write(table.concat(RulesCallStack(), '\n'))
---				elseif #RulesCallStack()>0 then
---					table.insert(RulesCallStack(-1), '\t'..table.concat(RulesCallStack(), '\n\t'))
---				end
---			end
---			table.remove(RulesCallStack)
---		end
+	mt.__index = mt.__index or {}
+	mt.__index.call = mt.__call
+--	local old_call = mt.__call
 
---		error_mode=prev_error_mode
+	mt.__call=function(self, idx, ...)
+		local i, c = self:call(idx, ...)
+
 		if i~=nil and self.onMatch then
 			local r, err = self:onMatch(c, idx, i)
 			if r==false then error(err) end
@@ -299,7 +278,7 @@ function Rule:hndl(fn, low)
 		local i, a = self.rule(idx)
 		if i~=nil then
 			local i2, a2 = self.handler_fn(idx, i, a)
-			if i2==false then return end
+--			if i2==false then return end
 			return i, i2 or a--i2 or i, a2 or a
 		end
 	end})
@@ -320,20 +299,13 @@ function Rule:wrapper(fn)
 	end})
 end
 
---function Rule:nm(name)
---	local r = { rule_type=self.rule_type, rule=self, capt_name=name }
-
---	return setmetatable(r, rule_mt{
---	__tostring=function(self)
---		return self.capt_name..'='..tostring(self.rule)
---	end,
---	__index=setmetatable({
---		rule_type='nm',
---	}, { __index=ProxyRule }),
---	__call=function(self,  idx)
---		return self.rule( idx)
---	end})
---end
+function Rule:expected(msg)
+	return self:wrapper(function(s, tok)
+		local t, a = s(tok)
+		assert(t~=nil, tok.locate..'. '..(msg or tostring(s)))
+		return t, a
+	end)
+end
 --__rule_mt.__pow=Rule.nm
 
 function Rule:opt(def_value)
@@ -443,7 +415,8 @@ function Alt(...)
 --				_ENV = setmetatable({ error_mode={} }, { __index=_ENV })
 --				local prev_error_mode = error_mode
 --				if error_mode~=false then error_mode = {} end
-				for k, v in ipairs(self) do
+				for k=1,#self do
+					local v = self[k]
 					i, ov = v(idx)
 					if i~=nil then
 --						error_mode=prev_error_mode
@@ -546,9 +519,10 @@ function Seq(first, ...)
 			for k in ipairs(self) do gmr(self, k) end
 		end,
 	}, { __index=Rule }),
-	__call=function(self,  idx)
+	__call=function(self, idx)
 		local new, use_capt_names = {}
-		for k,v in ipairs(self) do
+		for k=1,#self do
+			local v = self[k]
 			if not idx then
 				return --false, -100*k
 			end
@@ -849,20 +823,24 @@ end
 --end
 
 
-
-
+local _mt = { __index=function() return false end }
+local base_typeof = {
+	['function'] = setmetatable({ ['function']=true, callable=true }, _mt),
+	['number'] = setmetatable({ ['number']=true }, _mt),
+}
 
 function typeof(self)
 	local t = type(self)
 	if t=='table' then
 		local mt = getmetatable(self)
 		if type(mt)=='table' then
+			if mt.callable==nil and mt.__call then rawset(mt, 'callable', true) end
 			return setmetatable(mt, { __index=function() return false end })
 		else
 			return setmetatable({}, { __index=function() return false end })
 		end
 	else
-		return setmetatable({ [t]=true }, { __index=function() return false end })
+		return base_typeof[t]
 	end
 end
 

@@ -64,14 +64,16 @@ end
 
 function gmr.Define:onMatch(obj, tok0, tok)
 	for _, v in ipairs(obj.Vars) do
-		tok0.scope:define(tostring(v.Var or v), { kind='var', type=obj.Type })
+		assert(tok0.scope:define(tostring(v.Var or v), { kind='var', type=obj.Type }), tok0.locate..'. redefine `'..tostring(v.Var or v)..
+		'` ')
 	end
 end
 
 function gmr.FuncDecl:onMatch(obj, tok0, tok)
-	tok0.scope:define(tostring(obj.FuncName), {
+	assert(tok0.scope:define(tostring(obj.FuncName), {
 		kind='func', rtype=obj.ReturnType, args=obj.Args
-	})
+	}), tok0.locate..'. redefine `'..tostring(obj.FuncName)..
+		'` ')
 end
 
 function gmr.FuncDef:onMatch(obj, tok0, tok)
@@ -197,6 +199,11 @@ test_expr'2*3*i*j+3'
 
 test'1'
 test'2'
+
+local symmath = require'symmath'
+
+local x = symmath.var'x'
+print(x*2+6-3)
 
 os.exit()
 

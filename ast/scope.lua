@@ -22,8 +22,13 @@ end
 function scope_mt.__index:define(sym_name, value)
 	local name
 	if type(sym_name)=='table' then name=sym_name.str else name=sym_name end
-	assert(self.scope[name]==nil, 'redefine `'..tostring(sym_name)..
+	if self.scope[name] then
+		print('redefine `'..tostring(sym_name)..
 		'` '..tostring(self.scope[name]))
+		return false
+	end
+--	assert(self.scope[name]==nil, 'redefine `'..tostring(sym_name)..
+--		'` '..tostring(self.scope[name]))
 	self.scope[name] = value
 	return value
 end

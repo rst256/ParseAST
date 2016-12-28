@@ -7,10 +7,10 @@ x+=i3;
 for(int i=0;i;)printf("%d\n", i++);
 return v++||(char)s1.f(7|2, x)--;
 int * ip(char *);
-int * ip(const char *c_ptr){
+int * ip2(const char *c_ptr){
 	return (int*)c_ptr;
 }
-char ip(int c){
+char ip3(int c){
 	assert(c<255);
 	return (char*)&c;
 }
