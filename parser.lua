@@ -823,26 +823,31 @@ end
 --end
 
 
-local _mt = { __index=function() return false end }
-local base_typeof = {
-	['function'] = setmetatable({ ['function']=true, callable=true }, _mt),
-	['number'] = setmetatable({ ['number']=true }, _mt),
-}
+--local _mt = { __index=function() return false end }
+--local base_typeof = {
+--	['function'] = setmetatable({ ['function']=true, callable=true }, _mt),
+--	['number'] = setmetatable({ ['number']=true }, _mt),
+--	['nil'] = setmetatable({ ['nil']=true }, _mt),
+--	['string'] = setmetatable({ ['string']=true }, _mt),
+--	['boolean'] = setmetatable({ ['boolean']=true }, _mt),
+--}
 
-function typeof(self)
-	local t = type(self)
-	if t=='table' then
-		local mt = getmetatable(self)
-		if type(mt)=='table' then
-			if mt.callable==nil and mt.__call then rawset(mt, 'callable', true) end
-			return setmetatable(mt, { __index=function() return false end })
-		else
-			return setmetatable({}, { __index=function() return false end })
-		end
-	else
-		return base_typeof[t]
-	end
-end
+--function typeof(self)
+--	local t = type(self)
+--	if t=='table' then
+--		local mt = getmetatable(self)
+--		if type(mt)=='table' then
+--			if mt.callable==nil and mt.__call then rawset(mt, 'callable', true) end
+--			return setmetatable(mt, { __index=function() return false end })
+--		else
+--			return setmetatable({}, { __index=function() return false end })
+--		end
+--	else
+--		return base_typeof[t]
+--	end
+--end
+local typeof = require('mtmix').typeof
+
 
 BinOp = {}
 local binop_mt = {
@@ -869,6 +874,8 @@ function binop_mt.__index:eval()
 	if o=='&'  then return l&r  end
 	if o=='>>' then return l>>r end
 	if o=='<<' then return l<<r end
+	if o=='^' then return l^r end
+	error('unknown op: `'..o..'`')
 end
 
 local function bin_op(l, op, r)

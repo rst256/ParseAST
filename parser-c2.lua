@@ -137,7 +137,7 @@ gmr.Expr = Precedence(gmr.UnExpr,
 	lexeme'^',
 	Alt( lexeme'*', lexeme'/', lexeme'%'),
 	Alt( lexeme'+', lexeme'-' ),
-	Alt( lexeme'|', lexeme'&', lexeme'^' ),
+	Alt( lexeme'|', lexeme'&' ),
 
 
 --{ op_ptrn=Alt(lexeme'>>', lexeme'<<'), recursive=true },
