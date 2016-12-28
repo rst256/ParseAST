@@ -162,7 +162,7 @@ local function test_expr(ll, l)
 				print('runtime error', res)
 			elseif r==res then
 				local re = new:eval()
-				if typeof(re).expr then re2 = assert(load('return '..tostring(re):gsub('^%+', ''), ll..'\t'..tostring(re), 't', _G))() end
+				if typeof(re).expr then re2 = assert(load('return '..tostring(re), ll..'\t'..tostring(re), 't', _G))() end
 				if r==re or r==re2 then
 					print(fmt:format('ok  ', (tostring(new):match('^%s*(.*)')), r, tostring(re), clock))
 				else
@@ -183,7 +183,7 @@ test_expr'5+6+7+8*9/2-3+4'
 test_expr'3/2*5+6+7+8*9/2-3+4'
 test_expr'3/(2*5)+99'
 test_expr'6+7+8*9/2-3+4'
-i=9 j=-1
+i=9 j=-1 x=666
 test_expr'(2*3+i-2)*2*j+1'
 test_expr'(6+i-2)'
 test_expr'(2*3+i-2)*2*j+666'
@@ -191,6 +191,7 @@ test_expr'(2*3+i-2)*2*j-666'
 test_expr'(2*3*i)*2*j+666'
 test_expr'(2*3*i)*2'
 test_expr'2-(2*3+i-2)+1'
+test_expr'(x*2+6-3)/(x/2+33-3-30)'
 
 test_expr'2*3*i'
 test_expr'2*3*i*j'
@@ -203,7 +204,8 @@ test'2'
 local symmath = require'symmath'
 
 local x = symmath.var'x'
-print(x*2+6-3)
+local xa, xb = (x*2+6-3), x/0.5+33-3-30
+print('(x*2+6-3)/(x/0.5+33-3-30)', xa, xb, xa/xb)
 
 os.exit()
 

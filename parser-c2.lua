@@ -58,7 +58,7 @@ Value = Alt(
 	lexeme'string1', lexeme'string2',
 	(gmr.LValue^'lval')
 	:hndl(function(tok0, tok, obj)
-		return symmath.term(1, { [obj]=1 })
+		return symmath.term(1, { [tostring(obj)]=1 })
 	end),
 	Seq( lexeme' (', gmr.Expr^'Cond', lexeme' ?',
 		gmr.Expr^'Then', lexeme' :', gmr.Expr^'Else', lexeme' )'

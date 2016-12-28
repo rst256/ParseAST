@@ -29,6 +29,7 @@ local var_mt = {
 }
 
 local function snom(mul, var)
+	if mul==0 then return nil end
 	return setmetatable({ var=var, mul=mul or 1	}, var_mt)
 end
 M.term = snom
@@ -38,11 +39,11 @@ function M.var(name, mul, pow)
 end
 
 function var_mt:__tostring ()
-	local s = (self.mul==1 and '' or (self.mul<0 and '' or '+')..self.mul..'*')
+	local s = (self.mul==1 and '' or self.mul..'*')
 	for k, v in pairs(self.var or {}) do
 		s = s..tostring(k)..(v==1 and '' or '^'..v)..'*'
 	end
-	return s:gsub('%*$', ''):gsub('^$', '+1')
+	return s:gsub('%*$', '')--:gsub('^$', '+1')
 end
 
 
@@ -73,14 +74,62 @@ var_mt.__mul = overload{
 			local var = {}
 			for k,v in pairs(s.var or {}) do var[k]=v end
 			for k,v in pairs(s2.var or {}) do
-				if var[k] then var[k]=var[k]+v else var[k]=v end
+				if var[k] then var[k]=var[k]+v else	var[k]=v end
+				if var[k]==0 then var[k]=nil end
 			end
 			return snom(s.mul*s2.mul, var)
+		end,
+		polynom=function(s, p)
+			local n = {}
+			for k,v in ipairs(p) do
+				local var = {}
+				for ks,vs in pairs(s.var or {}) do var[ks]=vs end
+				for ks,vs in pairs(v.var or {}) do
+					if var[ks] then var[ks]=var[ks]+vs else var[ks]=vs end
+					if var[ks]==0 then var[ks]=nil end
+				end
+				table.insert(n, snom(s.mul*v.mul, var))
+			end
+			return M.polynom(table.unpack(n))
 		end,
 	},
 	number={
 		single_nom=function(n, s) return snom(s.mul*n, s.var) end,
---		number=function(s, n) return snom(s.var, s.add, s.mul*n) end,
+	},
+}
+
+var_mt.__div = overload{
+	single_nom={
+		number=function(s, n) return snom(s.mul/n, s.var) end,
+		single_nom=function(s, s2)
+			local var = {}
+			for k,v in pairs(s.var or {}) do var[k]=v end
+			for k,v in pairs(s2.var or {}) do
+				if var[k] then
+					var[k]=var[k]-v
+					if var[k]==0 then var[k]=nil end
+				else
+					var[k]=-v
+				end
+			end
+			return snom(s.mul/s2.mul, var)
+		end,
+		polynom=function(s, p)
+			local n = {}
+			for k,v in ipairs(p) do
+				local var = {}
+				for ks,vs in pairs(s.var or {}) do var[ks]=vs end
+				for ks,vs in pairs(v.var or {}) do
+					if var[ks] then var[ks]=var[ks]-vs else var[ks]=-vs end
+					if var[ks]==0 then var[ks]=nil end
+				end
+				table.insert(n, snom(s.mul/v.mul, var))
+			end
+			return M.polynom(table.unpack(n))
+		end,
+	},
+	number={
+		single_nom=function(n, s) return snom(n/s.mul, s.var) end,
 	},
 }
 
@@ -105,13 +154,20 @@ function M.polynom(...)
 	return setmetatable({ ... }, polynom_mt)
 end
 
-function polynom_mt:__tostring ()
-	return table.concat(self, ''):gsub('^%+', '')
+function polynom_mt:__tostring()
+	local s = ''
+	for k=1, #self do
+		s=s..tostring(self[k]):gsub('^([^%-])', '+%1')
+	end
+	return s:gsub('^%+', '')
 end
 
---function polynom_mt.__index:term()
---	return table.concat(self.var, '+')
---end
+function polynom_mt.__index:term(x)
+	for k=1, #self do
+		local v = self[k]
+		if v==x then return v end
+	end
+end
 
 polynom_mt.__add = overload{
 	polynom={
@@ -208,16 +264,8 @@ polynom_mt.__mul = overload{
 			return M.polynom(table.unpack(p))
 		end,
 		polynom=function(s, s2)
-			local p, is_find = {}, false
-			for _,v in ipairs(s) do table.insert(p, v) end
-			for _,v in ipairs(s2) do
-				if next(v, next(v))==nil then
-					table.insert(p, snom(v.mul)) is_find=true
-				else
-					table.insert(p, v)
-				end
-			end
-			if not is_find then table.insert(p, snom(n)) end
+			local p = {}
+			for _,v in ipairs(s) do table.insert(p, v*s2) end
 			return M.polynom(table.unpack(p))
 		end,
 		single_nom=function(s, s2)
@@ -237,6 +285,39 @@ polynom_mt.__mul = overload{
 	},
 }
 
-polynom_mt.__index={ eval=function(self) return self end }
+polynom_mt.__div = overload{
+	polynom={
+		number=function(s, n)
+			local p = {}
+			for _,v in ipairs(s) do
+				table.insert(p, v/n)
+			end
+			return M.polynom(table.unpack(p))
+		end,
+		polynom=function(s, s2)
+			local p = {}
+			for _,v in ipairs(s) do table.insert(p, v/s2) end
+			return M.polynom(table.unpack(p))
+		end,
+		single_nom=function(s, s2)
+			local p = {}
+			for _,v in ipairs(s) do table.insert(p, v/s2) end
+			return M.polynom(table.unpack(p))
+		end,
+	},
+	number={
+		polynom=function(n, s)
+			local p = {}
+			for _,v in ipairs(s) do
+					table.insert(p, n/v)
+			end
+			return M.polynom(table.unpack(p))
+		end
+	},
+}
+
+function polynom_mt.__index:eval()
+	return self
+end
 
 return M
