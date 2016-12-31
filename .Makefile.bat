@@ -67,7 +67,7 @@ exit
 %CD%\lua.exe parser-c-test1.lua 
 :: echo RUNTIME ERROR (%ERRORLEVEL%)
 IF %ERRORLEVEL% EQU 0 GOTO end_l
-gdb -ex run --args %CD%\lua.exe test.lua 
+:: gdb -ex run --args %CD%\lua.exe test.lua 
 
 :end_l
 echo ALL TESTS SUSSESS

@@ -216,11 +216,20 @@ int get_next_token(source * src, int mode) {
 		source_foreach(src, ch, is_charclass_sys_i(ch) ) l++;
 		return lexid_ident;
 	}else if(cc & digit){ 																							// hex or dec number
-		if(ch=='0' && (ch = nextch(src))=='x' ){ 												// hex number
-			int l = 0; nextch(src);
-			source_foreach(src, ch, is_charclass_sys_h(ch) ) l++;
-			assert(l); return lexid_hex;
-		}else{ 																											// dec number
+		
+		if(ch=='0' ){ 												// hex number
+			source old_src = *src;
+			if(nextch(src)=='x'){
+				int l = 0; nextch(src);
+				source_foreach(src, ch, is_charclass_sys_h(ch) ) l++;
+				// assert(l); 
+				// nextch(src);
+				return lexid_hex;
+			}else{
+				*src = old_src;
+			}
+		}
+		 																											// dec number
 			Lexer_Integer int_value = 0;
 			parse_integer_literal(src, &int_value);
 			int res_digit = lexid_integer;
@@ -240,8 +249,8 @@ int get_next_token(source * src, int mode) {
 				res_digit = lexid_real;
 			} 
 			return res_digit;
-		}
-		assert(0); 
+		
+		// assert(0); 
 	}else if(cc & white_space){																				// white space `[ \t\r\n]+`
 		int l = 0; nextch(src);
 		source_foreach(src, ch, is_charclass_sys_s(ch) ) l++;

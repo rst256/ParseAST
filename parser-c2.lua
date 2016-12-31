@@ -53,6 +53,7 @@ Value = Alt(
 
 	lexeme'int',
 	lexeme'real',
+	lexeme'hex',
 --	:hndl(function(tok0, tok, obj)
 --		return obj
 --	end),

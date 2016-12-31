@@ -200,6 +200,8 @@ test_expr'2*3*i'
 test_expr'2*3*i*j'
 test_expr'2*3*i*j+3'
 test_expr'.5*6*i*j+3'
+test_expr'0xFe<<1'
+test_expr'0xFe>>1'
 
 test'1'
 test'2'
@@ -224,7 +226,7 @@ local g_src = [[
 		'*' / '/',
 		'+' / '-'
 	}
-	value:= ('real')/'int'/'string1'/call/'ident'/'string2'
+	value:= 'hex'/'real'/'int'/'string1'/call/'ident'/'string2'
 	_if:="if" expr "then" chunks "end"
 	chunks:=*chunk
 	assign:='ident' 'assign' expr
@@ -259,7 +261,7 @@ local gg_src=[[
 	666.78*2-';'
 	if 6+7+8*9/2-3+4 then
 		b= 6+7+8*9/2-3+4
-		print(a, b)
+		print(a, b, 0x5eA)
 	end
 	c=88+rawlen(t)/.9e-5
 ]]
@@ -268,7 +270,7 @@ local gg_req=([[
   a = ('fjhfdjh' + ((666.78 * 2) - ';'))
   if ((6 + 7) + ((((8 * 9) / 2) - 3) + 4)) then
   b = ((6 + 7) + ((((8 * 9) / 2) - 3) + 4))
-  print ( a, b )
+  print ( a, b, 0x5eA )
  end
   c = (88 + (rawlen ( t ) / .9e-5))
 
@@ -280,7 +282,7 @@ local gg_i2, gg_a2 = gg(gg_src)
 local gg_i3, gg_a3 = gg_fn(gg_src)
 assert(gg_i1==false, tostring(gg_i1))
 local gg_a1_str = tostring(gg_a1)
---print(gg_i1, gg_a1_str)
+print(gg_i1, gg_a1_str)
 --print(gg_i2, gg_a2)
 assert(gg_a1_str:gsub('%s+', ' ')==gg_req, gg_a1_str)
 assert(gg_a1_str==tostring(gg_a2), tostring(gg_a2))
