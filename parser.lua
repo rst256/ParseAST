@@ -103,8 +103,11 @@ local function rule_mt(mt)
 		if i~=nil and self.onMatch then
 			local r, err = self:onMatch(c, idx, i)
 			if r==false then error(err) end
-			return i, r or c
+			r = r or c
+			if type(r)=='table' and not r.__rule then r.__rule=self end
+			return i, r
 		end
+		if type(c)=='table' and not c.__rule then c.__rule=self end
 		return i, c
 	end
 	return mt
@@ -188,7 +191,7 @@ function Rule:prefixof(that)
 	return false
 end
 
-local function __tmpl(tmpl, capt, undef_val)
+function __tmpl(tmpl, capt, undef_val)
 	assert(type(capt)=='table', type(capt)..'\t'..(tonumber(capt) or ''))
 	return ( tmpl
 		:gsub("@([%a%d_]+)%s*(%b())", function(func_name, func_args)
@@ -461,7 +464,14 @@ function Seq(first, ...)
 	__index=setmetatable({
 		rule_type='Seq',
 		capt_mt={
-			__tostring=function(self) return table.concat(self, ' ') end
+			__tostring=function(self)
+				local s = ''
+				for k=1, #self do
+					local si, ii = tostring(self[k]):gsub('\n', '\n  ')
+					s = s..si..(ii>0 and '' or ' ')
+				end
+				return (s:gsub(' $', ''))--table.concat(self, ' ')
+			end
 		},
 		prefixof=function(self, that)
 			if self[1]==that then return true end
@@ -902,7 +912,7 @@ Precedence = newRule(
 			return self(op1_tok, l, op1_pr)
 		else
 			local i, r = self.value(tok)
-			if i==false then return i, bin_op(larg, tok.prev, r) end
+			if i==false then return i, self.bin_op(larg, tok.prev, r) end
 			if not i then
 				return self:error(tok,
 					'operation sign expected after `'..tostring(larg))
@@ -913,19 +923,20 @@ Precedence = newRule(
 				op1_tok = op(i)
 				if op1_tok then op1_pr=pr break end
 			end
-			if not op1_pr then return i, bin_op(larg, tok.prev, r) end
+			if not op1_pr then return i, self.bin_op(larg, tok.prev, r) end
 			assert(op1_tok)
 
 			if op<=op1_pr then -- a*b+c
-				return self(op1_tok, bin_op(larg, tok.prev, r), op1_pr)
+				return self(op1_tok, self.bin_op(larg, tok.prev, r), op1_pr)
 			elseif op>op1_pr then -- a+b*c
 				local i2, r2 = self(op1_tok, r, op1_pr)
-				return i2, bin_op(larg, tok.prev, r2)
+				return i2, self.bin_op(larg, tok.prev, r2)
 			end
 		end
 	end,
 	{--self.value:subset(a)
 		rule_type='Precedence',
+		bin_op=bin_op,
 		subset=function(self, a) return false end,
 		raweq=function(self, a)
 			if getmetatable(a)==getmetatable(self) then return self.value==a.value end
@@ -938,6 +949,22 @@ Precedence = newRule(
 		end,
 	}
 )
+
+function NewRule(fn)
+	return setmetatable({}, rule_mt{
+		__call=function(self, tok)
+			local t,v = fn(tok)
+			if self.capt_mt and type(v)=='table' then
+				setmetatable(v, self.capt_mt)
+			end
+			return t, v
+		end,
+		__index=setmetatable({
+			rule_type='custom',
+--			capt_mt={},
+		}, { __index=Rule }),
+	})
+end
 
 Wrap = newRule(
 	function(open, body, close) return { open=open, body=body, close=close } end,

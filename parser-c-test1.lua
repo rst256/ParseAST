@@ -119,20 +119,33 @@ end
 
 local typeof = require('mtmix').typeof
 
+
 local fmt = '%.7s  %-40.40s  %10.10s    %-30.30s  %f'
 local function test(f)
 	lm=lex_mem(lexer.new(io.readall('test/src'..f..'.c')))
 	lm.scope = scope:sub()
 	local clock0=os.clock()
-	i, new = gmr.Chunks( lm())
+	i, new = gmr( lm())
 	local clock=os.clock()-clock0
 	local s = tostring(new):gsub('%s*\n', '\n')
-	local s1 = io.readall('test/req'..f..'.c', false)
+	local s1 = io.readall('test/req'..f..'.c', '')
 	io.writeall('test/ans'..f..'.c', s)
 --	print(s)
 --	assert(s:gsub('%s*\n', '\n')==s1)
 --	if s~=s1 then
-	print(s==s1 and 'ok  ' or 'fail', 'test/src'..f..'.c', clock)
+	if s:gsub('%s+', ' ')==s1:gsub('%s+', ' ') then
+		print('ok  ', 'test/src'..f..'.c', clock)
+	elseif i==false then
+		print('modf', 'test/src'..f..'.c', clock)
+		io.write'update test file? (y/n): '
+		local ans = io.read(1)
+		if ans:find'^%s*[yY]%s*$' then
+			io.writeall('test/req'..f..'.c', s)
+		end
+	else
+		print('fail', 'test/src'..f..'.c', clock)
+	end
+	return i, new
 end
 
 local function test_expr(ll, l)
@@ -219,18 +232,26 @@ print( ((2*3+i-2)*2*j)-1 ==2*i*j+8*j-1 )
 --os.exit()
 
 
-local g=require'parser-g'
+local g=require'parser-g2'
 
 local g_src = [[
-	expr:= binop value {
-		'*' / '/',
-		'+' / '-'
-	}
+	assign_op := '='/'+='/ '/=' /'-='/'*='
 	value:= 'hex'/'real'/'int'/'string1'/call/'ident'/'string2'
-	_if:="if" expr "then" chunks "end"
+	unop:= op=['-'/'!'/'&'/'*'] arg=(value/unop)
+
+	expr:= binop unop {
+		'*' / '/',
+		'+' / '-',
+		'&'/'|'/'^',
+		'=='/'>='/'<='/'!='/'<'/'>',
+		'&&'/'||',
+		assign_op
+	}
+
+	_if:=" if" cond=expr " then" th=chunks " end"
 	chunks:=*chunk
-	assign:='ident' 'assign' expr
-	call:='ident' '(' (expr*' ,') ')'
+	assign:= var='ident' op=assign_op value=expr
+	call:=fn='ident' ' (' args=(expr*' ,') ' )'
 	chunk:=_if/assign/call
 ]]
 
@@ -240,54 +261,89 @@ local g_src = [[
 
 local i, new = g(lm())--lm())
 --print(new)
-assert(i==false)
-local gg=Grammar('chunks')
-local fn, err = load(tostring(new), g_src, 't', setmetatable({}, {
-	__index=function(self, name)
-		return _G[name] or gg[name]
-	end,
-	__newindex=function(self, name, value)
-		gg[name]=value
-	end,
-}))
-if not fn then error(tostring(err)..'\n'..tostring(new), 1) end
+assert(i==false, tostring(i))
+io.writeall('ast.lua',
+	"dofile'keyword.lua'\nrequire'parser'\nlocal g = Grammar'chunks'\n\n"..
+	tostring(new)..[[
 
-local gg_res=fn()
-local gg_fn=gg()
+g()
+g.assign:tmpl'$var $op $value'
+g._if:tmpl'if $cond then $th end'
+g.call:tmpl'$fn ( $args )'
+g.unop:tmpl'$op$arg'
+
+print(g'a=5+6*x printf("%d") if x<5 then x=5 end')
+return g
+	]]
+)
+
+--local gg=Grammar('chunks')
+--local fn, err = load(
+--	"local g=Grammar('chunks')\n"..tostring(new)..'\nreturn g',
+--	g_src, 't', _G)-- setmetatable({}, {
+--	__index=function(self, name)
+--		return _G[name] or gg[name]
+--	end,
+--	__newindex=function(self, name, value)
+--		gg[name]=value
+--	end,
+--}))
+--if not fn then error(tostring(err)..'\n'..tostring(new), 1) end
+
+--local gg=fn()
+----local gg_fn=gg()
+--gg()
+--gg.assign:tmpl'$var $op $value'
+--gg._if:tmpl'if $cond then $th end'
+--gg.call:tmpl'$fn ( $args )'
+
+local gg=require'ast'
+
 --gg'expr' gg'chunks'
-print(gg)
-local gg_src=[[
-	a='fjhfdjh'+
-	666.78*2-';'
-	if 6+7+8*9/2-3+4 then
-		b= 6+7+8*9/2-3+4
-		print(a, b, 0x5eA)
-	end
-	c=88+rawlen(t)/.9e-5
-]]
+--print(gg)
+--local gg_src=[[
+--	a='fjhfdjh'+
+--	666.78*2-';'
+--	if 6+7+8*9/2-3+4 then
+--		b= 6+7+8*9/2-3+4
+--		if b>300 then b=300 a=0 end
+--		print(a, b, -0x5eA)
+--	end
+--	c=88+rawlen(t)/.9e-5
+--]]
 
-local gg_req=([[
-  a = ('fjhfdjh' + ((666.78 * 2) - ';'))
-  if ((6 + 7) + ((((8 * 9) / 2) - 3) + 4)) then
-  b = ((6 + 7) + ((((8 * 9) / 2) - 3) + 4))
-  print ( a, b, 0x5eA )
- end
-  c = (88 + (rawlen ( t ) / .9e-5))
+--local gg_req=([[
+--  a = ('fjhfdjh' + ((666.78 * 2) - ';'))
+--  if ((6 + 7) + ((((8 * 9) / 2) - 3) + 4)) then
+--  b = ((6 + 7) + ((((8 * 9) / 2) - 3) + 4))
+--	if (b > 300) then
+--		b = 300
+--		a = 0
+--	end
+--  print ( a, b, - 0x5eA )
+-- end
+--  c = (88 + (rawlen ( t ) / .9e-5))
+--]]):gsub('%s+', ' ')
 
-]]):gsub('%s+', ' ')
+--local lgg=lex_mem(lexer.new(gg_src))
+--local gg_i1, gg_a1 = gg.chunks(lgg())
+--local gg_i2, gg_a2 = gg(gg_src)
+--local gg_i3, gg_a3 = gg_fn(gg_src)
+--assert(gg_i1==false, tostring(gg_i1))
+--local gg_a1_str = tostring(gg_a1)
+--print(gg_i1, gg_a1_str)
+----print(gg_i2, gg_a2)
+--assert(gg_a1_str:gsub('%s+', ' ')==gg_req, gg_req)
+--assert(gg_a1_str==tostring(gg_a2), tostring(gg_a2))
+--assert(gg_a1_str==tostring(gg_a3), tostring(gg_a3))
+gg.unop:tmpl'$op$arg'
+gmr = gg
+local gg_i3, gg_a3 = test'1gg'
+print( gg_i3, gg_a3)
+for k,v in ipairs(gg_a3) do
+	print(k, v.__rule.name, v.var)
+end
 
-local lgg=lex_mem(lexer.new(gg_src))
-local gg_i1, gg_a1 = gg.chunks(lgg())
-local gg_i2, gg_a2 = gg(gg_src)
-local gg_i3, gg_a3 = gg_fn(gg_src)
-assert(gg_i1==false, tostring(gg_i1))
-local gg_a1_str = tostring(gg_a1)
-print(gg_i1, gg_a1_str)
---print(gg_i2, gg_a2)
-assert(gg_a1_str:gsub('%s+', ' ')==gg_req, gg_a1_str)
-assert(gg_a1_str==tostring(gg_a2), tostring(gg_a2))
-assert(gg_a1_str==tostring(gg_a3), tostring(gg_a3))
---assert(gg_a1_str:gsub('%s+', ' ')==gg_req)
 
 os.exit()
 mtmix=require'mtmix'

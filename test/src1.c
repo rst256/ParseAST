@@ -11,7 +11,7 @@ int * ip2(const char *c_ptr){
 	return (int*)c_ptr;
 }
 char ip3(int c){
-	assert(c<255);
+	assert(c<0xEa);
 	return (char*)&c;
 }
 char[30]  str;
