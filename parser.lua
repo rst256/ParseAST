@@ -94,11 +94,11 @@ local function rule_mt(mt)
 		if not mt[k] then mt[k]=v end
 	end
 	mt.__index = mt.__index or {}
-	mt.__index.call = mt.__call
+	mt.__index._call = mt.__call
 --	local old_call = mt.__call
 
 	mt.__call=function(self, idx, ...)
-		local i, c = self:call(idx, ...)
+		local i, c = self:_call(idx, ...)
 
 		if i~=nil and self.onMatch then
 			local r, err = self:onMatch(c, idx, i)
@@ -1029,7 +1029,7 @@ function grammar_mt:__index(name)
 --	assert(type(name)~='boolean', 'invalid rule name type (boolean)')
 	local forward_rule = rawget(self, false)[name]
 	if not forward_rule then
-		forward_rule = setmetatable({ forward=name }, grammar_rule_mt)
+		forward_rule = setmetatable({ forward=name, global=true }, grammar_rule_mt)
 		rawget(self, false)[name] = forward_rule
 	end
 	return forward_rule
@@ -1037,6 +1037,7 @@ end
 
 function grammar_mt:__newindex(name, rule)
 	rule.name=name
+	rule.global=true
 	rawset(self, name, rule)
 end
 

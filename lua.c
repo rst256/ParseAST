@@ -78,9 +78,10 @@ static int LuaLexer_lexeme_id(lua_State *L) {
 
 static int LuaLexer_new(lua_State *L) {//_from_file
 	size_t l;
-	const char *s = luaL_checklstring(L, 1, &l);
+	const char *s0 = luaL_checklstring(L, 1, &l);
 		// new_source_from_file(argv[1], &src);
-
+	char *s = malloc(l);
+	memcpy(s, s0, l);
 	LuaLexer self = lua_newuserdata(L, sizeof(struct LuaLexer));
 	luaL_setmetatable(L, LuaLexer__typename);
 
@@ -357,6 +358,12 @@ static int LuaLexer_rewind(lua_State *L) {//_from_file
 
 static int LuaLexer___tostring(lua_State *L) { return LuaLexer_str(L); }
 
+static int LuaLexer___gc(lua_State *L) { 
+	LuaLexer self = LuaLexer_check(L, 1);
+	free((void*)(self->s0));
+	return 0;
+}
+
 #define DLL_EXPORT __declspec(dllexport)
 
 
@@ -367,7 +374,7 @@ char c;
 
 DLL_EXPORT LUALIB_API int luaopen_lexer(lua_State *L) {
    static luaL_Reg LuaLexer__fn[] = newluaL_Reg(LuaLexer_, get_token, get_pos, str, next, rewind);
-	static luaL_Reg LuaLexer__mt[]= newluaL_Reg(LuaLexer_, __tostring);
+	static luaL_Reg LuaLexer__mt[]= newluaL_Reg(LuaLexer_, __tostring, __gc);
 	// static luaL_Reg LuaLexer__mt[]={
 	// // 	{"__call", LuaLexer_next_token },
 	// // 	// {"__tostring", NULL },

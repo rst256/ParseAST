@@ -248,11 +248,13 @@ local g_src = [[
 		assign_op
 	}
 
-	_if:=" if" cond=expr " then" th=chunks " end"
+	_if:=" if" cond=expr " then" th=[chunks] " end"
 	chunks:=*chunk
 	assign:= var='ident' op=assign_op value=expr
+	expr_list:=[expr*' ,']
 	call:=fn='ident' ' (' args=(expr*' ,') ' )'
-	chunk:=_if/assign/call
+	ret:=" return" values=expr_list
+	chunk:=_if/assign/call/ret
 ]]
 
 	lm=lex_mem(lexer.new(g_src))
@@ -336,7 +338,8 @@ local gg=require'ast'
 --assert(gg_a1_str:gsub('%s+', ' ')==gg_req, gg_req)
 --assert(gg_a1_str==tostring(gg_a2), tostring(gg_a2))
 --assert(gg_a1_str==tostring(gg_a3), tostring(gg_a3))
-gg.unop:tmpl'$op$arg'
+gg.ret:tmpl'return $values'
+
 gmr = gg
 local gg_i3, gg_a3 = test'1gg'
 print( gg_i3, gg_a3)

@@ -178,7 +178,7 @@ g._if = NewRule(function(tok)
 	this["cond"] = (v==nil and true or v)
 	t, v = (kwrd" then")(tok)
 	if t==nil then return else tok = t end
-	t, v = (g.chunks)(tok)
+	t, v = (g.chunks:opt'')(tok)
 	if t==nil then return else tok = t end
 	this["th"] = (v==nil and true or v)
 	t, v = (kwrd" end")(tok)
@@ -206,6 +206,9 @@ g.assign = NewRule(function(tok)
 end);
 
 
+g.expr_list = ListSep(g.expr, lexeme' ,'):opt'';
+
+
 g.call = NewRule(function(tok)
 	local t, v
 	local this = {}
@@ -223,16 +226,34 @@ g.call = NewRule(function(tok)
 end);
 
 
+g.ret = NewRule(function(tok)
+	local t, v
+	local this = {}
+	t, v = (kwrd" return")(tok)
+	if t==nil then return else tok = t end
+	t, v = (g.expr_list)(tok)
+	if t==nil then return else tok = t end
+	this["values"] = (v==nil and true or v)
+	return tok, this
+end);
+
+
 g.chunk = NewRule(function(tok)
 	local t,v = (NewRule(function(tok)
-		local t,v = (g._if)(tok)
+		local t,v = (NewRule(function(tok)
+			local t,v = (g._if)(tok)
+			if t==nil then
+				t,v = (g.assign)(tok)
+			end
+			return t, v
+		end))(tok)
 		if t==nil then
-			t,v = (g.assign)(tok)
+			t,v = (g.call)(tok)
 		end
 		return t, v
 	end))(tok)
 	if t==nil then
-		t,v = (g.call)(tok)
+		t,v = (g.ret)(tok)
 	end
 	return t, v
 end);
