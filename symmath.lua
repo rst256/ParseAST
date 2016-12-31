@@ -4,7 +4,6 @@ local mtmix = require'mtmix'
 
 local var_mt = {
 	__metatable={ expr=true, single_nom=true, 'single_nom' },
---	__index={ var={} },
 }
 
 local function snom(mul, var)
@@ -125,7 +124,6 @@ var_mt.__pow = mtmix.overload{
 	},
 }
 
-var_mt.__eq = M.equation
 
 var_mt.__index={	eval=function(self) return self end  }
 
@@ -140,7 +138,16 @@ function var_mt.__index.vareq(a, b)
 	return true
 end
 
-
+function var_mt.__eq(a, b)
+	if b.var==nil and a.var==nil then return a.mul==b.mul end
+	for ka, va in pairs(a.var or {}) do
+		if b.var and b.var[ka]~=va then return false end
+	end
+	for kb, vb in pairs(b.var or {}) do
+		if a.var and a.var[kb]~=vb then return false end
+	end
+	return a.mul==b.mul
+end
 
 
 
@@ -211,7 +218,6 @@ polynom_mt.__add = mtmix.overload{
 			for _,v in ipairs(p1) do
 				table.insert(p, p2+v)
 			end
---			if not is_find then table.insert(p, snom(n)) end
 			return M.polynom(table.unpack(p))
 		end
 	},
@@ -289,7 +295,7 @@ polynom_mt.__mul = mtmix.overload{
 		polynom=function(n, s)
 			local p = {}
 			for _,v in ipairs(s) do
-					table.insert(p, v*n)
+				table.insert(p, v*n)
 			end
 			return M.polynom(table.unpack(p))
 		end
@@ -344,7 +350,29 @@ polynom_mt.__pow = mtmix.overload{
 	},
 }
 
-polynom_mt.__eq = M.equation
+polynom_mt.__eq = mtmix.overload()
+
+function polynom_mt.__eq.polynom.number(p, n)
+	return #p==1 and p[1].var==nil and p[1].mul==n
+end
+
+function polynom_mt.__eq.polynom.single_nom(p, s)
+	return #p==1 and p[1]==s
+end
+
+function polynom_mt.__eq.polynom.polynom(p1, p2)
+	if #p1~=#p2 then return false end
+	for _,v in ipairs(p1) do
+		local is_find
+		for _,v2 in ipairs(p2) do
+			if v2==v then is_find=true break end
+		end
+		if not is_find then return false end
+	end
+	return true
+end
+
+
 
 function polynom_mt.__index:eval()
 	return self
@@ -403,7 +431,6 @@ equation_mt.__add = mtmix.overload{
 			for _,v in ipairs(p1) do
 				table.insert(p, p2+v)
 			end
---			if not is_find then table.insert(p, snom(n)) end
 			return M.equation(table.unpack(p))
 		end
 	},
@@ -527,9 +554,6 @@ equation_mt.__pow = mtmix.overload{
 				if n>0 then
 					for k=2, n do p=p*s end
 				elseif n<0 then
---					p=1/s
---					for k=0, -n do p=p/s end
---					p=1/p
 				elseif n==0 then
 					p=snom(1)
 				end

@@ -83,7 +83,15 @@ function M.typeof(self)
 end
 
 local overload_mt = {
-	__metatable={ overload=true, callable=true, 'overload' }
+	__metatable={ overload=true, callable=true, 'overload' },
+	__index=function(self, name)
+		local v=self.ovl_list[name] or {}
+		rawset(self.ovl_list, name, v)
+		return v
+	end,
+	__newindex=function(self, name, v)
+		rawset(self.ovl_list, name, v)
+	end,
 }
 
 function overload_mt:__call(...)

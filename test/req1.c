@@ -27,3 +27,9 @@ char ip3(int c){
 }
 char[30] str;
 int _sizeof_str=30;
+struct struct1 {
+	int i:8, i2:9;
+	void* v;
+} ss1;
+int ii=(10 + 10);
+p(s.f.fd[99].cb[1](((5 * 6) << (6 * 2))));

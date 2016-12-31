@@ -158,7 +158,7 @@ enum LexemeID {
 typedef LUA_NUMBER Lexer_Number;
 
 /* type for integer functions */
-typedef LUA_INTEGER Lexer_Integer;
+typedef unsigned long long Lexer_Integer;
 
 /* unsigned integer type */
 typedef LUA_UNSIGNED Lexer_Unsigned;
@@ -221,22 +221,25 @@ int get_next_token(source * src, int mode) {
 			source_foreach(src, ch, is_charclass_sys_h(ch) ) l++;
 			assert(l); return lexid_hex;
 		}else{ 																											// dec number
-			// int value = 0; //nextch(src);
 			Lexer_Integer int_value = 0;
-			// source_foreach(src, ch, is_charclass_sys_d(ch) ) value = 1;
 			parse_integer_literal(src, &int_value);
+			int res_digit = lexid_integer;
 			ch = getch(src);
 			if(ch=='.'){ 																								// real number
-				// ...
-				assert(0);
-				return lexid_real;
-			}else if(ch=='e' || ch=='E'){  																// real number in E notation 
-				// ...
-				assert(0);
-				return lexid_real;
-			} else { 																										// integer number
-				return lexid_integer; 
+				Lexer_Integer int2_value = 0;
+				nextch(src);
+				if(parse_integer_literal(src, &int2_value)!=0) return -2; 
+				// printf("real %d\t%llu.%llu\n", r22, int_value, int2_value);
+				res_digit = lexid_real; ch = getch(src);
 			}
+			if(ch=='e' || ch=='E'){  																// real number in E notation 
+				ch = nextch(src);
+				if(ch=='+' || ch=='-') nextch(src);
+				Lexer_Integer int_exp_value = 0;
+ 				if(parse_integer_literal(src, &int_exp_value)!=0) return -2; 
+				res_digit = lexid_real;
+			} 
+			return res_digit;
 		}
 		assert(0); 
 	}else if(cc & white_space){																				// white space `[ \t\r\n]+`
@@ -287,7 +290,19 @@ int get_next_token(source * src, int mode) {
 				if(ch2==ch){ 
 					if(ch2!=nextch(src)) return -2; 
 					nextch(src); return ch | lexgroup_dbl_form; 
-				} 
+				} else if(charclass_id(ch2) & digit){
+					Lexer_Integer int2_value = 0;
+					if(parse_integer_literal(src, &int2_value)!=0) return -2; 
+					// printf("real %d\t%llu.%llu\n", r22, int_value, int2_value);
+					ch = getch(src);
+					if(ch=='e' || ch=='E'){  																// real number in E notation 
+						ch = nextch(src);
+						if(ch=='+' || ch=='-') nextch(src);
+						Lexer_Integer int_exp_value = 0;
+		 				if(parse_integer_literal(src, &int_exp_value)!=0) return -2; 
+					} 
+					return lexid_real;
+				}
 				return ch; 
 				
 		}

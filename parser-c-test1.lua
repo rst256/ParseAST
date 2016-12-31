@@ -176,9 +176,9 @@ local function test_expr(ll, l)
 	end
 end
 
-gmr()
-gmr'Expr'
-gmr'Value'
+--gmr()
+--gmr'Expr'
+--gmr'Value'
 assert(gmr.Goto:check())
 test_expr'5+6+7+8*9/2-3+4'
 test_expr'3/2*5+6+7+8*9/2-3+4'
@@ -199,7 +199,7 @@ test_expr'(x*3)^(0-2)'
 test_expr'2*3*i'
 test_expr'2*3*i*j'
 test_expr'2*3*i*j+3'
-
+test_expr'.5*6*i*j+3'
 
 test'1'
 test'2'
@@ -213,61 +213,34 @@ local xa, xb = (x*2+6-3), x/0.5+33-3-30
 print('(x*2+6-3)/(x/0.5+33-3-30)', xa, xb, xa/xb,(x*3)^2)
 print(xa:calc{x=-7})
 print( ((((((2 * 3) + i) - 2) * 2) * j) + 1) )
-print( ((2*3+i-2)*2*j)-1 )
-os.exit()
+print( ((2*3+i-2)*2*j)-1 ==2*i*j+8*j-1 )
+--os.exit()
 
 
 local g=require'parser-g'
---Grammar('rules')
 
---g.rules=List(g.rule):tmpl'${\n}'
+local g_src = [[
+	expr:= binop value {
+		'*' / '/',
+		'+' / '-'
+	}
+	value:= ('real')/'int'/'string1'/call/'ident'/'string2'
+	_if:="if" expr "then" chunks "end"
+	chunks:=*chunk
+	assign:='ident' 'assign' expr
+	call:='ident' '(' (expr*' ,') ')'
+	chunk:=_if/assign/call
+]]
 
-----g.def=Seq(lexeme' :', lexeme' assign')
-
---g.rule=Seq(
---	Ident^'Name', lexeme' :=', --g.def,, lexeme' ;'
---	g.ra^'Body')
---	:tmpl'$Name := $Body;'
-
---g.ra=
---	Precedence(g.rs, lexeme'/')
-----
-
-
---g.r= Alt(
---	Wrap(lexeme' (', g.ra, lexeme' )'),
---	Wrap(lexeme' [', g.ra, lexeme' ]')
---		:tmpl(function(s) return '('..tostring(s.body)..'):opt()' end),
---	Seq(Ident^'Field', lexeme' assign', g.r^'R'):tmpl'$R^"$Field"',
---	Ident~lexeme' :=',
---	lexeme'string':tmpl(function(s) return 'lexeme'..tostring(s.tok) end)
-
---)
-
---g.rs=Alt(
-
---	List(g.r):tmpl'Seq(${, })'
-
---)
-
-
-	lm=lex_mem(lexer.new[[
-		expr:= binop value { '*'/'/', '+'/'-' }
-		value:= ('int' ',''int')/'int'/'string1'/call/'ident'/'string2'
-		_if:="if" expr "then" chunks "end"
-		chunks:=*chunk
-		assign:='ident' 'assign' expr
-		call:='ident' '(' (expr*' ,') ')'
-		chunk:=_if/assign/call
-	]])
+	lm=lex_mem(lexer.new(g_src))
 	lm.scope = scope:sub()
 --g() g'rule'
 
-local i, new = g.rules(lm())--lm())
-print(new)
-print(i)
-local gg=Grammar()
-local fn, err = load(tostring(new), '', 't', setmetatable({}, {
+local i, new = g(lm())--lm())
+--print(new)
+assert(i==false)
+local gg=Grammar('chunks')
+local fn, err = load(tostring(new), g_src, 't', setmetatable({}, {
 	__index=function(self, name)
 		return _G[name] or gg[name]
 	end,
@@ -275,21 +248,46 @@ local fn, err = load(tostring(new), '', 't', setmetatable({}, {
 		gg[name]=value
 	end,
 }))
-print(fn, err)
+if not fn then error(tostring(err)..'\n'..tostring(new), 1) end
 
 local gg_res=fn()
-gg'expr' gg'chunks'
+local gg_fn=gg()
+--gg'expr' gg'chunks'
 print(gg)
-local lgg=lex_mem(lexer.new[[a='fjhfdjh'+
-		666,7*2-';'
-		if 6+7+8*9/2-3+4 then
-			b= 6+7+8*9/2-3+4
-			print(a, b)
-		end
-		c=88+rawlen(t)
-	]])
-print(gg.chunks(lgg()))
+local gg_src=[[
+	a='fjhfdjh'+
+	666.78*2-';'
+	if 6+7+8*9/2-3+4 then
+		b= 6+7+8*9/2-3+4
+		print(a, b)
+	end
+	c=88+rawlen(t)/.9e-5
+]]
 
+local gg_req=([[
+  a = ('fjhfdjh' + ((666.78 * 2) - ';'))
+  if ((6 + 7) + ((((8 * 9) / 2) - 3) + 4)) then
+  b = ((6 + 7) + ((((8 * 9) / 2) - 3) + 4))
+  print ( a, b )
+ end
+  c = (88 + (rawlen ( t ) / .9e-5))
+
+]]):gsub('%s+', ' ')
+
+local lgg=lex_mem(lexer.new(gg_src))
+local gg_i1, gg_a1 = gg.chunks(lgg())
+local gg_i2, gg_a2 = gg(gg_src)
+local gg_i3, gg_a3 = gg_fn(gg_src)
+assert(gg_i1==false, tostring(gg_i1))
+local gg_a1_str = tostring(gg_a1)
+--print(gg_i1, gg_a1_str)
+--print(gg_i2, gg_a2)
+assert(gg_a1_str:gsub('%s+', ' ')==gg_req, gg_a1_str)
+assert(gg_a1_str==tostring(gg_a2), tostring(gg_a2))
+assert(gg_a1_str==tostring(gg_a3), tostring(gg_a3))
+--assert(gg_a1_str:gsub('%s+', ' ')==gg_req)
+
+os.exit()
 mtmix=require'mtmix'
 local t_mt=mtmix.mtmix()
 

@@ -991,54 +991,122 @@ end
 Ident = lexeme'ident'--ptrn'([%a_][%a%d_]*)%f[^%a%d_]'
 --debug.setmetatable(''', rule_mt{})
 
-local gmr_rule_mt = {}
+
+
+
+
 local grammar_mt = {}
+local grammar_rule_mt = rule_mt{}
 
 function grammar_mt:__index(name)
-	return setmetatable({ name=name }, gmr_rule_mt)
+--	assert(type(name)~='boolean', 'invalid rule name type (boolean)')
+	local forward_rule = rawget(self, false)[name]
+	if not forward_rule then
+		forward_rule = setmetatable({ forward=name }, grammar_rule_mt)
+		rawget(self, false)[name] = forward_rule
+	end
+	return forward_rule
+end
+
+function grammar_mt:__newindex(name, rule)
+	rule.name=name
+	rawset(self, name, rule)
+end
+
+			local lexer=require'lexer'
+			local lex_mem = require'lm'
+			local scope = require('ast.scope')
+
+local function grammar_call(root_rule)
+	return function(src)
+		if src~=nil then
+			local tok0
+			local src_t = type(src)
+			if src_t=='string' then
+				local lm = lex_mem(lexer.new(src))
+				lm.scope = scope()
+				tok0 = lm()
+			elseif src_t=='table' then
+				tok0 = src
+			end
+			return root_rule(tok0)
+		end
+	end
+end
+
+local function grammar_resolve(self, root_rule)
+	return function(src)
+		local function fn(rule, name, name2, ...)
+			local rf=assert(rule[name], (rule.name or tostring(rule))..'.'..name)
+			assert(type(rf)=='table', name)
+			if rf.forward then
+				rule[name]=assert(self[rf.forward], rf.forward)
+			end
+
+			local resolve = rule[name].resolve
+			if resolve then
+				rule[name].resolve=false
+				resolve(rule[name], fn)
+			end
+			if name2 then fn(rule, name2, ...) end
+		end
+
+
+		local resolve = assert(rawget(self, root_rule),
+			'root rule `'..tostring(root_rule)..'` not defined').resolve
+		if resolve then
+			self[root_rule].resolve=false
+			resolve(self[root_rule], fn)
+		end
+		local c_fn = grammar_call(self[root_rule])
+		rawset(self, true, c_fn)
+		if src~=nil then return c_fn(src) else return c_fn end
+		return c_fn(src)
+	end
 end
 
 
-function Grammar(root)
-	local forward_rules = {}
-	return setmetatable({}, {
-		__index=function(self, name)
-			local forward_rule = forward_rules[name]
-			if not forward_rule then
-				forward_rule = setmetatable({ forward=name }, rule_mt{})
-				forward_rules[name] = forward_rule
-			end
-			return forward_rule
---			return setmetatable({ forward=name }, rule_mt{})
-		end,
-		__newindex=function(self, name, rule)
-			rule.name=name
-			rawset(self, name, rule)
-		end,
-		__call=function(self, r)
-			local function fn(rule, name, name2, ...)
---				if not rule[name] then
---					print(rule, name, rule[name])
---				end
-				local rf=assert(rule[name], (rule.name or tostring(rule))..'.'..name)
-				assert(type(rf)=='table', name)
-				if rf.forward then
-					rule[name]=assert(self[rf.forward], rf.forward)
---				elseif rule[name]==nil then
-				end
+function grammar_mt:__call(src)
+	local root_rule = assert(rawget(self, true))
+--	if src~=nil then
+--		return root_rule(src)
+--	else
+--		return root_rule
+--	end
+--	return assert(rawget(self, true))(src)
+	if type(root_rule)=='function' then
+		if src~=nil then return root_rule(src) else return root_rule end
+	end
 
-				local resolve = rule[name].resolve
-				if resolve then
-					rule[name].resolve=false
-					resolve(rule[name], fn)
-				end
-				if name2 then fn(rule, name2, ...) end
-			end
-			local resolve = assert(rawget(self, r or root), r or root).resolve
-			if resolve then
-				self[r or root].resolve=false
-				resolve(self[r or root], fn)
-			end
+	local function fn(rule, name, name2, ...)
+		local rf=assert(rule[name], (rule.name or tostring(rule))..'.'..name)
+		assert(type(rf)=='table', name)
+		if rf.forward then
+			rule[name]=assert(self[rf.forward], rf.forward)
 		end
-	})
+
+		local resolve = rule[name].resolve
+		if resolve then
+			rule[name].resolve=false
+			resolve(rule[name], fn)
+		end
+		if name2 then fn(rule, name2, ...) end
+	end
+
+
+	local resolve = assert(rawget(self, root_rule),
+		'root rule `'..tostring(root_rule)..'` not defined').resolve
+	if resolve then
+		self[root_rule].resolve=false
+		resolve(self[root_rule], fn)
+	end
+	local c_fn = grammar_call(self[root_rule])
+	rawset(self, true, c_fn)
+	if src~=nil then return c_fn(src) else return c_fn end
+end
+
+function Grammar(root)
+	local t = { [false]={} }
+	t[true] = root--grammar_resolve(t, root)
+	return setmetatable(t, grammar_mt)
 end

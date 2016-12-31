@@ -50,6 +50,7 @@ g.rs=Alt(
 )
 
 
-g() g'rule'
+--g()
+--g'rule'
 
 return g

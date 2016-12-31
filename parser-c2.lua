@@ -52,6 +52,7 @@ Value = Alt(
 	Seq(FuncIdent, lexeme' (', gmr.args, lexeme' )'):tmpl'$1($2)',
 
 	lexeme'int',
+	lexeme'real',
 --	:hndl(function(tok0, tok, obj)
 --		return obj
 --	end),
@@ -296,7 +297,7 @@ gmr.For = Seq(kwrd' for', ScopedFuncOpen,
 --gmr.Chunk:add(gmr.If, gmr.For, gmr.FuncDecl, gmr.FuncDef)--, Func, ChunkFn, Repeat,
 
 
-
+gmr()
 
 return gmr
 

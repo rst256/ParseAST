@@ -25,18 +25,8 @@ typedef struct source{
 
 
 
-typedef struct range_table {
-  unsigned int first;
-  unsigned int last;
-  int step;
-} range_table;
 
-typedef struct range_map {
-  unsigned int first;
-  unsigned int last;
-  int step;
-  int charset_id;
-} range_map;
+
 
 	
 	
@@ -60,47 +50,55 @@ typedef struct matcher_group {
 	// int id;
 } matcher_group;
 
-		
-static int find_in_range(range_table *t, size_t size, unsigned ch){
-  size_t begin, end;
 
-  begin = 0;
-  end = size;
+/* тип  */
+typedef unsigned unicode_char; 
 
-  while (begin < end) {
-    int mid = (begin + end) / 2;
-    if (t[mid].last < ch)
-      begin = mid + 1;
-    else if (t[mid].first > ch)
-      end = mid;
-    else {
-    	if( t[mid].step==0){ fprintf(stderr, "%d\n",mid   ); exit(5); }
-      return (ch - t[mid].first) % t[mid].step == 0;
-     }
-  }
+typedef struct range_table {
+	unicode_char first;
+	unicode_char last;
+	int step;
+} range_table;
+
+static int find_in_range(range_table *t, size_t size, unicode_char ch){
+	size_t begin=0, end=size; 
+
+	while (begin < end) {
+		size_t mid = (begin + end) / 2;
+		if (t[mid].last < ch){
+			begin = mid + 1;
+		}else if (t[mid].first > ch){
+			end = mid;
+		}else {
+			return ((ch - t[mid].first) % t[mid].step) == 0;
+		}
+	}
 	
-  return 0;
+	return 0;
 }
 
+
+typedef struct range_map {
+	unsigned int first;
+	unsigned int last;
+	int step;
+	int attribute; // это поле содержит признаки   
+} range_map;
+
 static int detect_charset(range_map *t, size_t size, unsigned ch) {
-  size_t begin, end;
+	size_t begin=0, end=size; 
 
-  begin = 0;
-  end = size;
-
-  while (begin < end) {
-    int mid = (begin + end) / 2;
-    if (t[mid].last < ch)
-      begin = mid + 1;
-    else if (t[mid].first > ch)
-      end = mid;
-    else if ((ch - t[mid].first) % t[mid].step == 0)
-      return t[mid].charset_id;
-    else
-      return 0;
-  }
-
-  return 0;
+	while (begin < end) {
+		int mid = (begin + end) / 2;
+		if (t[mid].last < ch)
+			begin = mid + 1;
+		else if (t[mid].first > ch)
+			end = mid;
+		else
+			return ((ch - t[mid].first) % t[mid].step == 0) ? t[mid].attribute : 0;
+	}
+	
+	return 0;
 }	
 
 	
@@ -2074,7 +2072,7 @@ static struct range_table oper_charset[] = {
 define_category(oper)
 
 
-enum charset_id {
+enum attribute {
 	ident_first=1, ident_next=2,
 	digit=4, hex_digit=8, white_space=16, 
 	punct1=1<<5, punct2=2<<5, punct3=3<<5,
