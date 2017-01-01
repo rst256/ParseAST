@@ -82,6 +82,8 @@ lexemes = setmetatable({
 	[">"] = 62,
 	[60] = "<",
 	["<"] = 60,
+	[0x23] = "<-",
+	["<-"] = 0x23,
 	[16426] = "*=",
 	["*="] = 16426,
 	[32811] = "++",
@@ -153,5 +155,6 @@ keywords = keyword_list([[
 		const static extern typeof sizeof
 		continue
 		then end
+		function do in macros
 ]], 300)
 

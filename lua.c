@@ -150,7 +150,7 @@ enum LexemeID {
 	lexid_bor_op, lexid_oper, lexid_point, lexid_varArgs, lexid_argsep, 
 	lexid_sep, lexid_Block, lexid_block, lexid_Index, lexid_index, lexid_Sub, 
 	lexid_sub, lexid_lessth, lexid_bigth, lexid_ws=0, lexid_concat_line, lexid_eq, lexid_not_eq, 
-	lexid_inc_op,
+	lexid_inc_op, lexid_back_arrow=0x23,
 	lexgroup_dbl_form=0x8000, lexgroup_eq_postfix=0x4000, 
 	lexgroup_has_value=0x2000, lexgroup_comment=0x1000, 
 };
@@ -286,12 +286,13 @@ int get_next_token(source * src, int mode) {
 					source old_src = *src;
 					if(ch==nextch(src)){ 
 						*src = old_src; return ch;
-					}else{
+					}else
 						return ch | lexgroup_dbl_form;
-					} 
 				}
+			case '<': 
+				if(ch2 == '-'){ nextch(src); return lexid_back_arrow; }
 			case '&': case ':': case '|': 																		// single and double char tokens 
-			case '<': case '>': case '=':														
+			case '>': case '=':														
 				if(ch2 == ch){ nextch(src); return ch | lexgroup_dbl_form; }
 			case '!': case '*': case '^': case '%': 														// special assigment tokens
 				if(ch2=='='){ nextch(src); return ch | lexgroup_eq_postfix; }

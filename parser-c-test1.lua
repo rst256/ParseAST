@@ -2,8 +2,6 @@ StrongTypeDeclaration = 1
 
 local gmr=require'parser-c2'
 
---package.cpath = [[?.dll;]]..package.cpath
---package.path = [[?.lua;?\init.lua;]]..package.path
 
 local lexer=require'lexer'
 local lex_mem = require'lm'
@@ -39,21 +37,6 @@ scope:define('void', { kind='type', sizeof=0, name='void' })
 ]]--
 
 
- BinOp.sizeof=-666
-BinOp.type={}
---function--	print(self.l, self.r)
---	local o, l, r = tostring(self.op),
---		(tonumber(tostring(self.l)) or self.l:eval()),
---		assert(tonumber(tostring(self.r)) or self.r:eval())
---	if o=='+'  then return l+r  end
---	if o=='-'  then return l-r  end
---	if o=='*'  then return l*r  end
---	if o=='/'  then return l/r  end
---	if o=='|'  then return l|r  end
---	if o=='&'  then return l&r  end
---	if o=='>>' then return l>>r end
---	if o=='<<' then return l<<r end
---end
 
 
 function gmr.Assign:onMatch(obj, tok0, tok)
@@ -121,8 +104,10 @@ local typeof = require('mtmix').typeof
 
 
 local fmt = '%.7s  %-40.40s  %10.10s    %-30.30s  %f'
+
 local function test(f)
 	lm=lex_mem(lexer.new(io.readall('test/src'..f..'.c')))
+	lm.source_file_name = 'test/src'..f..'.c'
 	lm.scope = scope:sub()
 	local clock0=os.clock()
 	i, new = gmr( lm())
@@ -130,9 +115,6 @@ local function test(f)
 	local s = tostring(new):gsub('%s*\n', '\n')
 	local s1 = io.readall('test/req'..f..'.c', '')
 	io.writeall('test/ans'..f..'.c', s)
---	print(s)
---	assert(s:gsub('%s*\n', '\n')==s1)
---	if s~=s1 then
 	if s:gsub('%s+', ' ')==s1:gsub('%s+', ' ') then
 		print('ok  ', 'test/src'..f..'.c', clock)
 	elseif i==false then
@@ -189,9 +171,6 @@ local function test_expr(ll, l)
 	end
 end
 
---gmr()
---gmr'Expr'
---gmr'Value'
 assert(gmr.Goto:check())
 test_expr'5+6+7+8*9/2-3+4'
 test_expr'3/2*5+6+7+8*9/2-3+4'
@@ -219,27 +198,27 @@ test_expr'0xFe>>1'
 test'1'
 test'2'
 
-local symmath = require'symmath'
+--local symmath = require'symmath'
 
-local x = symmath.var'x'
-local i = symmath.var'i'
-local j = symmath.var'j'
-local xa, xb = (x*2+6-3), x/0.5+33-3-30
-print('(x*2+6-3)/(x/0.5+33-3-30)', xa, xb, xa/xb,(x*3)^2)
-print(xa:calc{x=-7})
-print( ((((((2 * 3) + i) - 2) * 2) * j) + 1) )
-print( ((2*3+i-2)*2*j)-1 ==2*i*j+8*j-1 )
---os.exit()
+--local x = symmath.var'x'
+--local i = symmath.var'i'
+--local j = symmath.var'j'
+--local xa, xb = (x*2+6-3), x/0.5+33-3-30
+--print('(x*2+6-3)/(x/0.5+33-3-30)', xa, xb, xa/xb,(x*3)^2)
+--print(xa:calc{x=-7})
+--print( ((((((2 * 3) + i) - 2) * 2) * j) + 1) )
+--print( ((2*3+i-2)*2*j)-1 ==2*i*j+8*j-1 )
 
 
 local g=require'parser-g2'
 
 local g_src = [[
 	assign_op := '='/'+='/ '/=' /'-='/'*='
-	value:= 'hex'/'real'/'int'/'string1'/call/'ident'/'string2'
-	unop:= op=['-'/'!'/'&'/'*'] arg=(value/unop)
+	value:= (' ('<expr>' )')/		unop/
+		'hex'/'real'/'int'/'string1'/call/'ident'/'string2'
+	unop:= op=('-'/'!'/'&'/'*') arg=(value!'unop arg expected')
 
-	expr:= binop unop {
+	expr:= binop value {
 		'*' / '/',
 		'+' / '-',
 		'&'/'|'/'^',
@@ -248,106 +227,107 @@ local g_src = [[
 		assign_op
 	}
 
-	_if:=" if" cond=expr " then" th=[chunks] " end"
+	_if:=" if" cond=(expr!'cond expected') " then"!'`then` expected'
+		th=[chunks] " end"!'if end expected'
 	chunks:=*chunk
 	assign:= var='ident' op=assign_op value=expr
 	expr_list:=[expr*' ,']
-	call:=fn='ident' ' (' args=(expr*' ,') ' )'
+	call:=fn='ident' ' (' args=((expr*' ,')!'call func next arg expected')
+		' )'!'call func end expected'
+	metacall:= ' @' fn='ident' ' (' args=((expr*' ,')!'call func next arg expected')
+		' )'!'call func end expected'
 	ret:=" return" values=expr_list
-	chunk:=_if/assign/call/ret
+	type_def:= ' <-' argtype='ident'
+	type_defs:= ' <-' argtypes=('ident'*' ,')
+	var_def:= argname='ident' argtype=[type_def]
+	func:=" function" fn='ident' ' ('
+		args=[(var_def)*' ,']	' )'!'define func arg list end expected'
+		rettype=[type_defs]
+		body=[chunks] " end"!'func end expected'
+	metafunc:=' @' " function"
+		fn='ident' ' ('
+		args=[('ident')*' ,']	' )'!'define metafunc arg list end expected'
+		body=[chunks] (' @' " end")!'func end expected'
+	macrodef:=' @' " macros"
+		fn='ident' ' ('
+		args=[('ident')*' ,']	' )'!'define metafunc arg list end expected'
+		body=expr (' @' " end")!'func end expected'
+	_for:=" for" var=assign " do" body=[chunks] " end"!'for end expected'
+	gfor:=" for"
+		args=[(var_def)*' ,']
+		" in" iter=(expr!'gfor iter expected')
+		" do" body=[chunks] " end"!'for end expected'
+	chunk:=gfor/_for/_if/func/assign/call/ret/macrodef/metafunc/metacall
 ]]
-
+--
 	lm=lex_mem(lexer.new(g_src))
 	lm.scope = scope:sub()
---g() g'rule'
 
 local i, new = g(lm())--lm())
---print(new)
-assert(i==false, tostring(i))
+assert(i==false, tostring(i)..'\n'..tostring(new))
 io.writeall('ast.lua',
 	"dofile'keyword.lua'\nrequire'parser'\nlocal g = Grammar'chunks'\n\n"..
 	tostring(new)..[[
 
 g()
 g.assign:tmpl'$var $op $value'
-g._if:tmpl'if $cond then $th end'
-g.call:tmpl'$fn ( $args )'
+g._if:tmpl'if $cond then	$th	end'
+g.call:tmpl'$fn($args)'
+g.metacall:tmpl'@$fn($args)'
 g.unop:tmpl'$op$arg'
+g.ret:tmpl'return $values'
+g.func:tmpl'function $fn($args)$rettype	$body	end'
+g.metafunc:tmpl'@function $fn($args)$rettype	$body	end'
+g.macrodef:tmpl'@macros $fn($args)	$body	@end'
+g.type_def:tmpl'<-$argtype'
+g.type_defs:tmpl'<-$argtypes'
+g.var_def:tmpl'$argname$argtype'
+g._for:tmpl'for $var do $body	end'
+g.gfor:tmpl'for $args in $iter do $body	end'
 
-print(g'a=5+6*x printf("%d") if x<5 then x=5 end')
+--print(g'a=5+6*x printf("%d") if x<5 then x=5 end')
 return g
 	]]
 )
 
---local gg=Grammar('chunks')
---local fn, err = load(
---	"local g=Grammar('chunks')\n"..tostring(new)..'\nreturn g',
---	g_src, 't', _G)-- setmetatable({}, {
---	__index=function(self, name)
---		return _G[name] or gg[name]
---	end,
---	__newindex=function(self, name, value)
---		gg[name]=value
---	end,
---}))
---if not fn then error(tostring(err)..'\n'..tostring(new), 1) end
-
---local gg=fn()
-----local gg_fn=gg()
---gg()
---gg.assign:tmpl'$var $op $value'
---gg._if:tmpl'if $cond then $th end'
---gg.call:tmpl'$fn ( $args )'
 
 local gg=require'ast'
 
---gg'expr' gg'chunks'
---print(gg)
---local gg_src=[[
---	a='fjhfdjh'+
---	666.78*2-';'
---	if 6+7+8*9/2-3+4 then
---		b= 6+7+8*9/2-3+4
---		if b>300 then b=300 a=0 end
---		print(a, b, -0x5eA)
---	end
---	c=88+rawlen(t)/.9e-5
---]]
+--print(gg.eb.rule_type)
 
---local gg_req=([[
---  a = ('fjhfdjh' + ((666.78 * 2) - ';'))
---  if ((6 + 7) + ((((8 * 9) / 2) - 3) + 4)) then
---  b = ((6 + 7) + ((((8 * 9) / 2) - 3) + 4))
---	if (b > 300) then
---		b = 300
---		a = 0
---	end
---  print ( a, b, - 0x5eA )
--- end
---  c = (88 + (rawlen ( t ) / .9e-5))
---]]):gsub('%s+', ' ')
 
---local lgg=lex_mem(lexer.new(gg_src))
---local gg_i1, gg_a1 = gg.chunks(lgg())
---local gg_i2, gg_a2 = gg(gg_src)
---local gg_i3, gg_a3 = gg_fn(gg_src)
---assert(gg_i1==false, tostring(gg_i1))
---local gg_a1_str = tostring(gg_a1)
---print(gg_i1, gg_a1_str)
-----print(gg_i2, gg_a2)
---assert(gg_a1_str:gsub('%s+', ' ')==gg_req, gg_req)
---assert(gg_a1_str==tostring(gg_a2), tostring(gg_a2))
---assert(gg_a1_str==tostring(gg_a3), tostring(gg_a3))
-gg.ret:tmpl'return $values'
+--g
 
 gmr = gg
 local gg_i3, gg_a3 = test'1gg'
 print( gg_i3, gg_a3)
-for k,v in ipairs(gg_a3) do
-	print(k, v.__rule.name, v.var)
+local ts = '  '
+local function fp(a, tab)
+	for k,v in pairs(a) do
+		if v.__rule and k~='parent' then
+			if v.parent then
+				if not v.begin_tok then
+					print(v)
+				end
+				print(('%s %20s %20.20s %30s  %.30s'):format(ts:rep(tab or 0)..k,
+					v.__rule.name,
+					v.begin_tok.locate..'-'..v.end_tok.locate,
+					'"'..tostring(v)..'"',
+					v.parent.__rule~=nil and v.parent.__rule.name or
+					('"'..tostring(v.parent)..'"')))
+--					v.parent.begin_tok.locate, v.parent.end_tok.locate)
+			else
+				print(('%s %20s %20.20s %30s'):format(ts:rep(tab or 0)..k,
+					v.__rule.name,
+					v.begin_tok.locate..'-'..v.end_tok.locate, '"'..tostring(v)..'"'))
+			end
+--			fp(v, (tab or 0)+1)
+		end
+	end
 end
+fp(gg_a3)
 
-
+--print(gg_a3[1].value.r.l.__rule)
 os.exit()
 mtmix=require'mtmix'
 local t_mt=mtmix.mtmix()
@@ -373,7 +353,6 @@ print(	Assign>=gmr.Chunks, gmr.Chunks>=Assign,
 	Assign>=Assign, gmr.Chunks>=gmr.Chunks,
 	Assign<=Assign, gmr.Chunks<=gmr.Chunks
 )
---print'true	true	false	false	true	true	true	true'
 
 print'\nA>C	C>A	A<C	C<A	C<A	A<C	A>A	C>C'
 print(
@@ -421,6 +400,3 @@ print(
 )
 
 
---lm=lex_mem(lexer.new'l1:')
---lm.scope = scope:sub()
---print( Label( lm()))

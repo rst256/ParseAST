@@ -6,18 +6,14 @@ local lex_mem = require'lm'
 
 
 scope = require('ast.scope')()
---scope:define('int', { kind='type', sizeof=4, name='int' })
---scope:define('char', { kind='type', sizeof=1, name='char' })
---scope:define('bool', { kind='type', sizeof=1, name='bool' })
---scope:define('void', { kind='type', sizeof=0, name='void' })
 
 local temp_rule_mt = {}
 
---function temp_rule_mt:
 function tempRule(fn)
-	return setmetatable({}, rule_mt{
+	return setmetatable({ call=fn }, {
 		__call=function(self, tok)
-			local t,v = fn(tok)
+			local t,v = self.call(tok)
+			if t==nil and self.def_val then return tok, self.def_val end
 			if self.capt_mt and type(v)=='table' then
 				setmetatable(v, self.capt_mt)
 			end
@@ -25,8 +21,8 @@ function tempRule(fn)
 		end,
 		__index=setmetatable({
 			rule_type='custom',
---			capt_mt={},
-		}, { __index=Rule }),
+			opt=function(self, v) self.def_val=v or '' return self end,
+		}, { __index={} }),
 	})
 end
 
@@ -34,7 +30,6 @@ local g=Grammar('rules')
 
 g.rules=List(g.rule):tmpl'${\n}'
 
---g.def=Seq(lexeme' :', lexeme' assign')
 
 g.rule=Seq(
 	Ident^'Name', lexeme' :=', --g.def,, lexeme' ;'
@@ -47,12 +42,24 @@ local g_binop_mt = {
 	__metatable={ binop=true, expr=true },
 }
 
+function binop_alt(l, r)
+	return tempRule(function(tok)
+		local t,v = (l)(tok)
+		if t==nil then
+			t,v = (r)(tok)
+		end
+		return t, v
+	end)
+end
+
 function g_binop_mt:__tostring()
 	local op, l, r = tostring(self.op), tostring(self.l), tostring(self.r)
-	if op=='/' then
-	return 'NewRule(function(tok)\n\tlocal t,v = ('..l:gsub('\n', '\n\t')..
-		')(tok)\n\tif t==nil then\n\t\tt,v = ('..
-		r:gsub('\n', '\n\t\t')..')(tok)\n\tend\n\treturn t, v\nend)'
+	if op=='//' then
+		assert(l.def_value==nil)
+		assert(r.def_value==nil)
+		return 'NewRule(function(tok)\n\tlocal t,v = ('..l:gsub('\n', '\n\t')..
+			')(tok)\n\tif t==nil then\n\t\tt,v = ('..
+			r:gsub('\n', '\n\t\t')..')(tok)\n\tend\n\treturn t, v\nend)'
 	elseif op=='*' then
 		return 'ListSep('..l..', '..r..')'
 	elseif op=='^=' then
@@ -61,13 +68,11 @@ function g_binop_mt:__tostring()
 		r:gsub('\n', '\n\t\t')..
 		')(t)\n\t\tif tn==nil then return t, v end\n\tend\nend)'
 	end
-	return '('..l..op..r..')'
+	return ''..l..op..r..''
 end
 
 function g_binop_mt.__index:eval()
 	local o, l, r = tostring(self.op),
---		assert(tonumber(tostring(self.l)) or self.l:eval()),
---		assert(tonumber(tostring(self.r)) or self.r:eval())
 		assert(typeof(self.l).expr and self.l:eval() or tonumber(tostring(self.l))),
 		assert(typeof(self.r).expr and self.r:eval() or tonumber(tostring(self.r)))
 	if o=='+'  then return l+r  end
@@ -87,8 +92,7 @@ local function g_binop(l, op, r)
 end
 
 g.ra=Precedence(g.rs, lexeme'/', lexeme'*', lexeme'^=')
-g.ra.bin_op=g_binop
---
+--g.ra.bin_op=g_binop
 g.ruleID = NewRule(function(tok)
 	local t,v = Ident(tok)
 	if t~=nil then
@@ -107,10 +111,7 @@ local function ruleset(rule, name, value)
 				return tostring(rule)
 			end,
 			__index=rule,
-	--		__call=function(self,  idx)
-	--			return self.rule( idx)
-	--		end
-		})
+					})
 	else--if type()
 		rule[name]=value
 		return rule
@@ -127,46 +128,48 @@ end
 
 
 g.opt = Wrap(lexeme' [', g.ra, lexeme' ]')
-
 function g.opt:onMatch(rule)
---	if c.R.global then
-		return setmetatable( { opt=true }, {
+	rule.def_value=''
+		return setmetatable( { def_value='' }, {
 			__tostring=function(self)
 				return tostring(rule)..':opt\'\''
 			end,
 			__index=rule,
-	--		__call=function(self,  idx)
-	--			return self.rule( idx)
-	--		end
-		})
---	else--if type()
---		rule.opt=true
---		return c.R
---	end
+					})
 end
 
-g.r= Alt(
---	Wrap(lexeme' {', ListSep(g.ra, lexeme' ,'):tmpl'${, }',
---	lexeme' }'):tmpl'ListSep($body)',
+g._r= Alt(
 	Seq(usrkwrd'binop', g.ra^'Items', Wrap(lexeme' {', ListSep(g.ra, lexeme' ,'):tmpl'${, }', lexeme' }')^'Ops'):tmpl'Precedence($Items, $Ops)',
 
 	Wrap(lexeme' (', g.ra, lexeme' )'),
---	Wrap(lexeme' [', g.ra, lexeme' ]')
---		:tmpl(function(s) return '('..tostring(s.body)..'):opt(\'\')' end),
-	g.opt, g.field,
+
+	g.opt,
+	g.field,
 	g.ruleID~lexeme' :=',
 	lexeme'string1':tmpl(function(s) return 'lexeme'..tostring(s.tok) end),
 	lexeme'string2':tmpl(function(s) return 'kwrd'..tostring(s.tok) end)
 )
-
+g.r=Alt(
+		Seq(g._r, lexeme' !', lexeme'string1'):tmpl'($1):expected($2)',
+--		Seq(lexeme' !', g.r):tmpl'($1):expected()',
+		g._r
+	)
+--('fjhfdjh' + ((666.78 * 2) - ';'))
+--(('fjhfdjh' + (666.78 * 2)) - ';')
 g.rs=Alt(
 	Seq( lexeme' *', g.r):tmpl'List($1)',
+		Seq(g.r^'open', lexeme' <', g.ra^'body', lexeme' >', g.r^'close')
+		:tmpl(function(s)
+			return 'Wrap('..tostring(s.open)..', '..
+				tostring(s.body)..', '..tostring(s.close)..')'
+			end),
 	List(g.r):tmpl(function(self)
-		local s = 'NewRule(function(tok)\n\tlocal t, v\n\tlocal this = {}\n\t'
+		local s = 'NewRule(function(tok0)\n\tlocal tok, t, v = tok0\n\tlocal this = {}\n\t'
 		for k=1,#self do
 			local v = self[k]
-			s=s..'t, v = ('..tostring(v)..
-			')(tok)\n\tif t==nil then return else tok = t end\n\t'
+			s=s..'local rl=('..tostring(v)..
+			') if rl.rule_type=="expected" then rule_start_tok=tok0.next end\n\t'..
+			't, v = rl(tok)\n\tif t==nil then return nil, "'..tostring(v.field_name or k)..'" else tok = t end\n\t'
 			if type(v)=='table' and v.field_name then
 				s=s..'this["'..tostring(v.field_name)..'"] = (v==nil and true or v)\n\t'
 			end
@@ -177,7 +180,5 @@ g.rs=Alt(
 )
 
 
---g()
---g'rule'
 
 return g

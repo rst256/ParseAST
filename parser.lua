@@ -45,9 +45,8 @@ local __rule_mt = {
 
 }
 
---function __rule_mt:__pow(name)
---	return self:nm(name)
---end
+rule_start_tok=nil
+
 
 function __rule_mt.__div(a, b)
 	return Alt(a, b)
@@ -64,17 +63,14 @@ function __rule_mt:__eq(that)
 end
 
 function __rule_mt.__lt(a, b)
---	print(a, '<', b, '\t\t', (a:subset(b) ), (a==b))
 	if not b.subset then error(tostring(b)) end
 	return b:subset(a) or (a==b)
 end
 
 function __rule_mt.__le(a, b) -- a <= b
---	print(a, '<=', b, '\t\t', (a:subset(b) ), (a==b))
 	if not a.subset then error(tostring(a)) end
 	if a:subset(b) or (a==b) then return true end
 	if b:subset(a) then return false end
---	return (a:subset(b) )
 end
 
 function __rule_mt:__bxor(that)
@@ -88,26 +84,33 @@ RulesCallStack = setmetatable({},{
 	__call=function(self, idx) return self[#self+(idx or 0)] end
 })
 
-local opt_counter, alt_counter = 0, 0
-local function rule_mt(mt)
+
+function rule_mt(mt)
 	for k,v in pairs(__rule_mt) do
 		if not mt[k] then mt[k]=v end
 	end
+	mt.__metatable = mt.__metatable or {}
+	mt.__metatable.rule = true
+
 	mt.__index = mt.__index or {}
-	mt.__index._call = mt.__call
---	local old_call = mt.__call
+	mt.__index.call = mt.__call
 
 	mt.__call=function(self, idx, ...)
-		local i, c = self:_call(idx, ...)
+		if self.expected_cntr then rule_start_tok=idx end
+		local i, c = self:call(idx, ...)
 
 		if i~=nil and self.onMatch then
 			local r, err = self:onMatch(c, idx, i)
 			if r==false then error(err) end
-			r = r or c
-			if type(r)=='table' and not r.__rule then r.__rule=self end
-			return i, r
+			c = r or c
+--			if type(r)=='table' and not r.__rule then r.__rule=self end
+--			return i, r
 		end
-		if type(c)=='table' and not c.__rule then c.__rule=self end
+		if type(c)=='table' then
+			if not c.__rule then c.__rule=self end
+			c.begin_tok = idx--.nextws
+			c.end_tok = i and i or idx.last
+		end
 		return i, c
 	end
 	return mt
@@ -138,18 +141,17 @@ function newRule(constructor, parser, methods)
 	})
 end
 
-local error_mode = {}
+--local error_mode = {}
 
-function Rule:error(idx, ...)
-	if opt_counter~=0 then
-		return
-	elseif alt_counter~=0 then
-		table.insert(RulesCallStack(),
-			idx.locate..' parse error '..table.concat({...}, '\t'))
-	else
---		print(idx.locate, 'parse error', ...)
-	end
-end
+--function Rule:error(idx, ...)
+--	if opt_counter~=0 then
+--		return
+--	elseif alt_counter~=0 then
+--		table.insert(RulesCallStack(),
+--			idx.locate..' parse error '..table.concat({...}, '\t'))
+--	else
+--	end
+--end
 
 
 function Rule:resume(idx, c)
@@ -161,7 +163,6 @@ end
 
 function Rule.ends() 	 end
 function Rule.begins() end
---function Rule:subset(r) print(self) return false end
 function Rule.intersect(a, b) return a:subset(b) or b:subset(a) end
 
 function Rule.correlate(a, b, opts)
@@ -182,7 +183,6 @@ function Rule.correlate(a, b, opts)
 	end
 	if opts:find('s', 1, false) and cr.subset==nil then --and not cr.equal
 		cr.subset=a:subset(b)
---		cr_rev.intersept=cr.intersept
 	end
 	return a:subset(b) or b:subset(a)
 end
@@ -211,15 +211,20 @@ function __tmpl(tmpl, capt, undef_val)
 		end)
 		:gsub("(.?)%$([%a%d_]+)", function(is_tab, name)
 			if is_tab=='\t' then
-				return string.gsub(is_tab..tostring(capt[tonumber(name) or name] or
-					(undef_val or '')), '\n', '\n\t')
+				local s, i = string.gsub(	is_tab..
+					tostring(capt[tonumber(name) or name] or
+						(undef_val or '')), '\n', '\n\t')
+				if i>0 then s=s..'\n' end
+				return s
 			end
 			return is_tab..tostring(capt[tonumber(name) or name] or (undef_val or ''))
 		end)
 		:gsub("(.?)%$(%b{})", function(is_tab, sep)
 			if is_tab=='\t' then
-				return string.gsub(is_tab..table.concat(capt, sep:sub(2, -2)),
-					'\n', '\n\t')
+				local s, i = string.gsub(is_tab..table.concat(
+						capt, sep:sub(2, -2)), '\n', '\n\t')
+				if i>0 then s=s..'\n' end
+				return s
 			end
 			return is_tab..table.concat(capt, sep:sub(2, -2))
 		end)
@@ -281,21 +286,20 @@ function Rule:hndl(fn, low)
 		local i, a = self.rule(idx)
 		if i~=nil then
 			local i2, a2 = self.handler_fn(idx, i, a)
---			if i2==false then return end
 			return i, i2 or a--i2 or i, a2 or a
 		end
 	end})
 end
 
-function Rule:wrapper(fn)
-	local r = { rule_type=self.rule_type, rule=self, fn=fn }
+function Rule:wrapper(fn, rule_type)
+	local r = { rule=self, fn=fn, rule_type=rule_type or 'wrapper' }
 
 	return setmetatable(r, rule_mt{
 	__tostring=function(self)
 		return '('..tostring(self.rule)..')'
 	end,
 	__index=setmetatable({
-		rule_type='wrapper',
+		rule_type=rule_type or 'wrapper',
 	}, { __index=ProxyRule }),
 	__call=function(self, idx)
 		return self.fn(self.rule, idx)
@@ -305,11 +309,16 @@ end
 function Rule:expected(msg)
 	return self:wrapper(function(s, tok)
 		local t, a = s(tok)
-		assert(t~=nil, tok.locate..'. '..(msg or tostring(s)))
+		if t==nil then
+			print((rule_start_tok or tok).source_file_name..':'..
+				(rule_start_tok or tok).line..': '..
+				(rule_start_tok~=nil and (rule_start_tok.locate..' - ') or '')..
+				(tok and tok.locate or 'eof')..'. '..(msg or ('expected 	`'..tostring(s)..'`')), a or '')
+			os.exit(-3)
+		end
 		return t, a
-	end)
+	end, 'expected')
 end
---__rule_mt.__pow=Rule.nm
 
 function Rule:opt(def_value)
 	local r = { rule=self, def_value=def_value }
@@ -350,6 +359,11 @@ index={}
 
 function Alt(...)
 	local r = { ... }
+	for k,v in ipairs(r) do
+		if v.def_value~=nil or v.rule_type=='opt' then
+			error('Optional rule not allowed in Alt member '..k, 2)
+		end
+	end
 	r.capt_mt={
 		ruleof=r,
 					__tostring=function(self)
@@ -359,19 +373,7 @@ function Alt(...)
 		return setmetatable(r, rule_mt{
 			__tostring=function(self)
 				return 'alt'
---				index[self]=counter
---				counter=counter+1
---				local s = ''
---				for _,v in ipairs(self) do
---					if index[v] then
---						s=s..'<'..index[v]..'> | '
---					else
---									local s1, l1 = tostring(v):gsub('\n', '\n\t')
---				if l1>0 then s=s..'\n\t'..s1..' | ' else s=s..s1..' | ' end
 
---					end
---				end
---				return index[self]..': '..(s:gsub('%s*| $', ''))
 			end,
 			__index=setmetatable({
 				rule_type='alt',
@@ -415,51 +417,36 @@ function Alt(...)
 			}, { __index=Rule }),
 			__call=function(self,  idx)
 				local i, ov
---				_ENV = setmetatable({ error_mode={} }, { __index=_ENV })
---				local prev_error_mode = error_mode
---				if error_mode~=false then error_mode = {} end
 				for k=1,#self do
 					local v = self[k]
+					if not v.call then
+						print(v, k)
+					end
 					i, ov = v(idx)
 					if i~=nil then
---						error_mode=prev_error_mode
 						if ov==nil then
 							return i, k
 						else
---							if self.capt_mt then setmetatable(ov, self.capt_mt) end
 							return i, ov
 						end
 					end
 				end
---				if error_mode~=false then print(table.concat(error_mode, '\n')) end
---				error_mode=prev_error_mode
 				return
 			end
 		})
 end
 
 function Seq(first, ...)
---	assert(first)
 	local r = { first, ... }
---	for k,v in ipairs(r) do
---		assert(v, k)
---	end
+	for k,v in ipairs(r) do
+		if v.rule_type=='expected' then
+			r.expected_cntr = true
+		end
+	end
 	return setmetatable(r, rule_mt{
 	__tostring=function(self)
 		return 'seq'
---		index[self]=counter
---		counter=counter+1
---		local s = ''
---		for _,v in ipairs(self) do
---			if index[v] then
---				s=s..'<'..index[v]..'> '
---			elseif v then
---				local s1, l1 = string.gsub(tostring(v), '\n', '\n\t')
---				if l1>0 then s=s..'\n\t'..s1..' + ' else s=s..s1..' + ' end
 
---			end
---		end
---		return index[self]..': {'..(s:gsub('%s*%+ $', ''))..'}\n'
 	end,
 	__index=setmetatable({
 		rule_type='Seq',
@@ -476,12 +463,6 @@ function Seq(first, ...)
 		prefixof=function(self, that)
 			if self[1]==that then return true end
 			return self[1]:prefixof(that)
---			local that_seq = that:toseq()
---			if #self>#that_seq then return 0 end
---			for k=1, #self do
---				if self[k]~=that_seq[k] then return 0 end
---			end
---			return #self/#that_seq
 		end,
 		toseq=function(self, t)
 			local r = t or {}
@@ -512,7 +493,6 @@ function Seq(first, ...)
 		end,
 		check=function(self)--self[1]==nil
 			if self:prefixof(self) then return false, '<=' end
---			if self[1]<=self then return false, '<=' end
 			return true
 		end,
 		subset=function(self, a)
@@ -533,16 +513,16 @@ function Seq(first, ...)
 		local new, use_capt_names = {}
 		for k=1,#self do
 			local v = self[k]
-			if not idx then
-				return --false, -100*k
+			if idx==false then
+				return nil, 'unexpected eof'
 			end
 			local i, ov = v(idx)
 			if i==nil then
-				self:error(idx, '`'..tostring(v)..'` expected')
-				return --false, -100*k
+				return nil, ov
 			end
+			if type(ov)=='table' then ov.parent = new end
 			if type(v)=='table' and v.capt_name then
-				new[v.capt_name]=ov==nil and true or ov
+				new[v.capt_name] = ov==nil and true or ov
 				use_capt_names=true
 			else
 				table.insert(new, ov)
@@ -575,22 +555,29 @@ function List(items)
 		end,
 	}, { __index=Rule }),
 	__call=function(self, idx)
-		local new, len = {}, 0
+		local new, len, err = {}, 0
 		while idx do
 			local i, iv = self.items(idx)
-			if i==nil then break end
+			if i==nil then
+				err=iv break
+			end
 			if self.onEach then
-				local r = self:onEach(new, iv)
-				if r~=nil then table.insert(new, r) end
-			else
-				if iv~=nil then table.insert(new, iv) end
+				iv = self:onEach(new, iv)
+			end
+			if iv~=nil then
+				table.insert(new, iv)
+				if type(iv)=='table' then iv.parent = new end
 			end
 			len=len+1
 			idx=i
 		end
 		if #new==0 then
 			if len==0 then
-				if self.optional~=nil then return idx, self.optional else return end
+				if self.optional~=nil then
+					return idx, self.optional
+				else
+					return nil, err
+				end
 			end
 			return idx, len
 		end
@@ -606,13 +593,21 @@ function ListSep(items, sep)
 			return table.concat(self, tostring(sep)..' ')
 		end }
 	}
-
+	if items.rule_type=='expected' or sep.rule_type=='expected' then
+		r.expected_cntr = true
+	end
 	return setmetatable(r, rule_mt{
 	__tostring=function(self)
 		return '{'..tostring(self.items)..','..tostring(self.sep)..'}'
 	end,
 	__index=setmetatable({
 		rule_type='ListSep',
+		expected=function(self, msg)
+			self.expected_cntr = true
+			self.items = self.items:expected(msg)
+
+			return self
+		end,
 		raweq=function(self, a)
 			return self.items==a.items and self.sep==a.sep
 		end,
@@ -625,14 +620,20 @@ function ListSep(items, sep)
 		local new = {}
 		while true do
 			local i, iv = self.items( idx)
-			if i==nil then return end
-			table.insert(new, iv or i)
+			if i==nil then
+				return nil, iv
+			end
+			if type(iv)=='table' then iv.parent = new end
+			table.insert(new, iv)
 			idx=i
 			if i==false then break end
 			local isep, ivsep = self.sep( idx)
 			if isep==nil then break end
 			if isep==false then break end
-			if ivsep then table.insert(new, ivsep) end
+			if ivsep then
+				if type(ivsep)=='table' then ivsep.parent = new end
+				table.insert(new, ivsep)
+			end
 			idx=isep
 		end
 		return idx, setmetatable(new, self.capt_mt)
@@ -672,12 +673,12 @@ function ListSepLast(items, sep, last)
 				if self.last.capt_name then
 					new[self.last.capt_name]=iv or true
 				else
-					table.insert(new, iv or i)
+					table.insert(new, iv)
 				end
 				idx=i
 				break
 			end
-			table.insert(new, iv or i)
+			table.insert(new, iv)
 			idx=i
 			if i==false then break end
 			local isep, ivsep = self.sep( idx)
@@ -729,7 +730,7 @@ function lexeme(p)
 		pattern=assert(tonumber(tonumber(p) or lexemes[p:match'%s*(.+)']), p),
 		is_capture=tostring(p):sub(1,1)~=' '
 	}
-
+	r.name='lexeme('..lexemes[r.pattern]..')'
 	return setmetatable(r, rule_mt{
 		__tostring=function(self)
 			return assert(lexemes[self.pattern])
@@ -745,9 +746,14 @@ function lexeme(p)
 			if tok and tok.lexeme==self.pattern then
 				if self.is_capture then
 					if self.capt_mt then
+						self.capt_mt.__index=self.capt_mt.__index or {}
+						self.capt_mt.__index.__rule=self
 						return tok.next or false, setmetatable({ tok=tok }, self.capt_mt)
 					else
-						return tok.next or false, tok
+						return tok.next or false, setmetatable({ tok=tok }, {
+							__tostring=function(s) return tostring(s.tok) end,
+							__index={ __rule=self },
+						})
 					end
 				else
 					return tok.next or false
@@ -762,7 +768,7 @@ function usrkwrd(p)
 		usrkwrd=p:match'%s*(.+)',
 		is_capture=tostring(p):sub(1,1)~=' '
 	}
-
+	r.name='usrkwrd('..r.usrkwrd..')'
 	return setmetatable(r, rule_mt{
 		__tostring=function(self)
 			return assert(self.usrkwrd)
@@ -780,7 +786,10 @@ function usrkwrd(p)
 					if self.capt_mt then
 						return tok.next or false, setmetatable({ tok=tok }, self.capt_mt)
 					else
-						return tok.next or false, tok
+						return tok.next or false, setmetatable({ tok=tok }, {
+							__tostring=function(s) return tostring(s.tok) end,
+							__index={ __rule=self },
+						})
 					end
 				else
 					return tok.next or false
@@ -795,13 +804,13 @@ function kwrd(p)
 		pattern=assert(tonumber(tonumber(p) or keywords[p:match'%s*(.+)']), p),
 		is_capture=tostring(p):sub(1,1)~=' '
 	}
-
+	r.name='kwrd('..keywords[r.pattern]..')'
 	return setmetatable(r, rule_mt{
 		__tostring=function(self)
 			return assert(keywords[self.pattern])
 		end,
 		__index=setmetatable({
-			rule_type='lexeme',
+			rule_type='kwrd',
 			raweq=function(a, b)
 				return (getmetatable(a)==getmetatable(b)) and a.pattern==b.pattern
 			end,
@@ -810,7 +819,10 @@ function kwrd(p)
 		__call=function(self, tok)
 			if tok and tok.lexeme==self.pattern then
 				if self.is_capture then
-				return tok.next or false, tok
+				return tok.next or false, setmetatable({ tok=tok }, {
+					__tostring=function(s) return tostring(s.tok) end,
+					__index={ __rule=self },
+				})
 			else
 				return tok.next or false
 				end
@@ -819,43 +831,9 @@ function kwrd(p)
 	})
 end
 
---local __keywords, keywords_count = {}, 0
---function kwrd(kw)
---	local kw_id = assert(tonumber(kw) or keywords[kw:match'%s*(.+)'], kw)
---	if kw:match'^%s+' then kw_id=-kw_id end
---	local kw_rule = __keywords[kw_id]
---	if kw_rule then return kw_rule end
---	kw_rule=lexeme(kw_id<0 and ' '..(-kw_id) or kw_id)
---	keywords_count=keywords_count+1
---	kw_rule.lexeme_id = keywords_count
---	__keywords[kw_id]=kw_rule
---	return kw_rule
---end
 
 
---local _mt = { __index=function() return false end }
---local base_typeof = {
---	['function'] = setmetatable({ ['function']=true, callable=true }, _mt),
---	['number'] = setmetatable({ ['number']=true }, _mt),
---	['nil'] = setmetatable({ ['nil']=true }, _mt),
---	['string'] = setmetatable({ ['string']=true }, _mt),
---	['boolean'] = setmetatable({ ['boolean']=true }, _mt),
---}
 
---function typeof(self)
---	local t = type(self)
---	if t=='table' then
---		local mt = getmetatable(self)
---		if type(mt)=='table' then
---			if mt.callable==nil and mt.__call then rawset(mt, 'callable', true) end
---			return setmetatable(mt, { __index=function() return false end })
---		else
---			return setmetatable({}, { __index=function() return false end })
---		end
---	else
---		return base_typeof[t]
---	end
---end
 local typeof = require('mtmix').typeof
 
 
@@ -872,8 +850,6 @@ end
 
 function binop_mt.__index:eval()
 	local o, l, r = tostring(self.op),
---		assert(tonumber(tostring(self.l)) or self.l:eval()),
---		assert(tonumber(tostring(self.r)) or self.r:eval())
 		assert(typeof(self.l).expr and self.l:eval() or tonumber(tostring(self.l))),
 		assert(typeof(self.r).expr and self.r:eval() or tonumber(tostring(self.r)))
 	if o=='+'  then return l+r  end
@@ -888,8 +864,17 @@ function binop_mt.__index:eval()
 	error('unknown op: `'..o..'`')
 end
 
-local function bin_op(l, op, r)
-	return setmetatable({ l=l, op=op, r=r }, binop_mt)
+local function bin_op(l, op, r, __rule, parent)
+	if type(l)=='number' then
+		print(l, op, r)
+	end
+	local new = setmetatable({
+		l=l, op=op, r=r, parent=parent, __rule=__rule,
+--		begin_tok=l.begin_tok
+	}, binop_mt)
+	if type(l)=='table' then l.parent = new end
+	if type(r)=='table' then r.parent = new end
+	return new
 end
 
 
@@ -899,7 +884,11 @@ Precedence = newRule(
 
 		if not larg then
 			local i, l = self.value(tok)
-			if i==nil then return elseif i==false then return i, l end
+			if i==nil then
+				return nil, 'left operand expected'
+			elseif i==false then
+				return i, l
+			end
 
 			local op1_tok, op1_pr
 			for pr, op in ipairs(self.op) do
@@ -912,10 +901,14 @@ Precedence = newRule(
 			return self(op1_tok, l, op1_pr)
 		else
 			local i, r = self.value(tok)
-			if i==false then return i, self.bin_op(larg, tok.prev, r) end
+			if i==false then
+				return i, self.bin_op(larg, tok.prev, r, self)
+			end
 			if not i then
-				return self:error(tok,
-					'operation sign expected after `'..tostring(larg))
+--				print(tok.locate..
+--					'. operation sign expected after `'..tostring(larg))
+--				os.exit(-3)
+				return nil, 'operation `'..tostring(tok.prev)..'` with rigth arg'
 			end
 
 			local op1_tok, op1_pr
@@ -923,14 +916,21 @@ Precedence = newRule(
 				op1_tok = op(i)
 				if op1_tok then op1_pr=pr break end
 			end
-			if not op1_pr then return i, self.bin_op(larg, tok.prev, r) end
+			if not op1_pr then return i, self.bin_op(larg, tok.prev, r, self) end
 			assert(op1_tok)
 
 			if op<=op1_pr then -- a*b+c
-				return self(op1_tok, self.bin_op(larg, tok.prev, r), op1_pr)
+				local new1 = self.bin_op(larg, tok.prev, r, self)
+				local i2, new2 = self(op1_tok, new1, op1_pr)
+				new1.parent = new2
+				new1.begin_tok = tok.prev
+				new1.end_tok = i
+				if i2==nil then return nil, new2 end
+				if new2 then new2.begin_tok = tok end
+				return i2, new2
 			elseif op>op1_pr then -- a+b*c
 				local i2, r2 = self(op1_tok, r, op1_pr)
-				return i2, self.bin_op(larg, tok.prev, r2)
+				return i2, self.bin_op(larg, tok.prev, r2, self)
 			end
 		end
 	end,
@@ -961,7 +961,6 @@ function NewRule(fn)
 		end,
 		__index=setmetatable({
 			rule_type='custom',
---			capt_mt={},
 		}, { __index=Rule }),
 	})
 end
@@ -986,14 +985,11 @@ Wrap = newRule(
 
 		local end_tok = self.close(close_tok)
 		if end_tok==nil then
-			return self:error(close_tok,
-				'close wrap `'..tostring(self.close)..'` expected after '..
-				tostring(close_tok))
+			return nil, 'close wrap `'..tostring(self.close)..'` expected after '..
+				tostring(close_tok)
 		end
 		if self.capt_mt then
 			return end_tok, setmetatable({ body=body_value }, self.capt_mt)
---		else
---			return tok.next or false, tok
 		end
 		return end_tok, body_value
 	end,
@@ -1016,7 +1012,6 @@ function WrapAlt(open, body, close)
 end
 
 Ident = lexeme'ident'--ptrn'([%a_][%a%d_]*)%f[^%a%d_]'
---debug.setmetatable(''', rule_mt{})
 
 
 
@@ -1026,7 +1021,6 @@ local grammar_mt = {}
 local grammar_rule_mt = rule_mt{}
 
 function grammar_mt:__index(name)
---	assert(type(name)~='boolean', 'invalid rule name type (boolean)')
 	local forward_rule = rawget(self, false)[name]
 	if not forward_rule then
 		forward_rule = setmetatable({ forward=name, global=true }, grammar_rule_mt)
@@ -1062,8 +1056,7 @@ local function grammar_call(root_rule)
 	end
 end
 
-local function grammar_resolve(self, root_rule)
-	return function(src)
+local function grammar_resolve(self, rule_name)
 		local function fn(rule, name, name2, ...)
 			local rf=assert(rule[name], (rule.name or tostring(rule))..'.'..name)
 			assert(type(rf)=='table', name)
@@ -1079,55 +1072,26 @@ local function grammar_resolve(self, root_rule)
 			if name2 then fn(rule, name2, ...) end
 		end
 
-
-		local resolve = assert(rawget(self, root_rule),
-			'root rule `'..tostring(root_rule)..'` not defined').resolve
+		local resolve = assert(rawget(self, rule_name),
+			'root rule `'..tostring(rule_name)..'` not defined').resolve
 		if resolve then
-			self[root_rule].resolve=false
-			resolve(self[root_rule], fn)
+			self[rule_name].resolve=false
+			resolve(self[rule_name], fn)
 		end
-		local c_fn = grammar_call(self[root_rule])
-		rawset(self, true, c_fn)
-		if src~=nil then return c_fn(src) else return c_fn end
-		return c_fn(src)
-	end
 end
 
 
 function grammar_mt:__call(src)
 	local root_rule = assert(rawget(self, true))
---	if src~=nil then
---		return root_rule(src)
---	else
---		return root_rule
---	end
---	return assert(rawget(self, true))(src)
 	if type(root_rule)=='function' then
 		if src~=nil then return root_rule(src) else return root_rule end
 	end
 
-	local function fn(rule, name, name2, ...)
-		local rf=assert(rule[name], (rule.name or tostring(rule))..'.'..name)
-		assert(type(rf)=='table', name)
-		if rf.forward then
-			rule[name]=assert(self[rf.forward], rf.forward)
-		end
-
-		local resolve = rule[name].resolve
-		if resolve then
-			rule[name].resolve=false
-			resolve(rule[name], fn)
-		end
-		if name2 then fn(rule, name2, ...) end
-	end
 
 
-	local resolve = assert(rawget(self, root_rule),
-		'root rule `'..tostring(root_rule)..'` not defined').resolve
-	if resolve then
-		self[root_rule].resolve=false
-		resolve(self[root_rule], fn)
-	end
+
+
+	for k in pairs(self) do grammar_resolve(self, k) end
 	local c_fn = grammar_call(self[root_rule])
 	rawset(self, true, c_fn)
 	if src~=nil then return c_fn(src) else return c_fn end

@@ -43,8 +43,9 @@ local function lexer_memoryzator(lex, offset)
 		assert(idx>0)
 --		if idx<=#cash then return rawget(cash, idx) end
 		while idx>#cash do
-			local line, pos = lex:get_pos()
 			local li=lex:next()
+local line, pos = lex:get_pos()
+
 			if not li then return li end
 			if dont_skip_whitespace or li~=0 then
 
@@ -57,7 +58,7 @@ local function lexer_memoryzator(lex, offset)
 					vindex = self.vindex
 				end
 				rawset(cash, #cash+1, setmetatable({
-					lexeme=li, line=line, pos=pos+1, str=lex:str(), idx=#cash+1,
+					lexeme=li, line=line, pos=pos, str=lex:str(), idx=#cash+1,
 					vindex = vindex
 				}, tok_mt))
 			end
@@ -68,6 +69,7 @@ local function lexer_memoryzator(lex, offset)
 	local lm = setmetatable({
 		index = 0,
 		vindex = 0,
+		source_file_name='',
 		cash = {},
 		flush = function(self)
 			if #self.cash>0 then
@@ -115,12 +117,20 @@ local function lexer_memoryzator(lex, offset)
 
 	local tok_prop = {}
 
+	function tok_prop:source_file_name()
+		return lm.source_file_name or ''
+	end
+
 	function tok_prop:iseof()
 		return false
 	end
 
 	function tok_prop:isok()
 		return true
+	end
+
+	function tok_prop:last()
+		return lm(#lm)
 	end
 
 	function tok_prop:nextws()
