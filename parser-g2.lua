@@ -151,6 +151,8 @@ g._r= Alt(
 )
 g.r=Alt(
 		Seq(g._r, lexeme' !', lexeme'string1'):tmpl'($1):expected($2)',
+		Seq(g._r, lexeme' ^', lexeme'string1'):tmpl'($1):tmpl($2)',
+		Seq(g._r, lexeme' ?', g._r):tmpl'IfThen($1, $2)',
 --		Seq(lexeme' !', g.r):tmpl'($1):expected()',
 		g._r
 	)
@@ -171,7 +173,7 @@ g.rs=Alt(
 			') if rl.rule_type=="expected" then rule_start_tok=tok0.next end\n\t'..
 			't, v = rl(tok)\n\tif t==nil then return nil, "'..tostring(v.field_name or k)..'" else tok = t end\n\t'
 			if type(v)=='table' and v.field_name then
-				s=s..'this["'..tostring(v.field_name)..'"] = (v==nil and true or v)\n\t'
+				s=s..'this["'..tostring(v.field_name)..'"] = v\n\t'
 			end
 		end
 		return s..'return tok, this\nend)'

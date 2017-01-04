@@ -18,8 +18,10 @@ lexemes = setmetatable({
 	["string1"] = 39,
 	[34] = "string2",
 	["string2"] = 34,
-	[8196] = "ml_comm",
-	["ml_comm"] = 8196,
+	[0x2] = "ml_comm",
+	["ml_comm"] = 0x2,
+	[0x1] = "sl_comm",
+	["sl_comm"] = 0x1,
 	[125] = "}",
 	["}"] = 125,
 	[16442]=":=",
@@ -121,13 +123,20 @@ lexemes = setmetatable({
 	["%="]=16421,
 	[16478]="^=",
 	["^="]=16478,
-
+	[126]="~",
+	["~"]=126,
+	[16510]="~=",
+	["~="]=16510,
 }, {
 	__call = function(self, name) return self[name] end,
 	__index = function(self, name)
 		local l = lexer.new(name):next()
-		if l then print('\t['..l..']="'..name..'",\n\t["'..name..'"]='..l..',') end
-		return l
+		if l and rawget(self, name)==nil then
+			print('\t['..l..']="'..name..'",\n\t["'..name..'"]='..l..',')
+			rawset(self, name, l)
+			rawset(self, l, name)
+			return l
+		end
 	end
 })
 
@@ -156,5 +165,6 @@ keywords = keyword_list([[
 		continue
 		then end
 		function do in macros
+		local
 ]], 300)
 

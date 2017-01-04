@@ -213,6 +213,7 @@ gmr.Call = Seq(FuncIdent,
 
 
 gmr.Chunk = Alt(
+	gmr.While,
 	gmr.Label, gmr.Goto, gmr.Define, gmr.Return, gmr.Continue, gmr.Break,
 	gmr.Call, gmr.Assign, gmr.If, gmr.For, gmr.FuncDef, gmr.FuncDecl
 )
@@ -291,7 +292,10 @@ gmr.For = Seq(kwrd' for', ScopedFuncOpen,
 	lexeme' )', ScopedBlock^'Body'
 ):tmpl'for($Init $Cond; $Iter)$Body'
 
-
+gmr.While = Seq(kwrd' while', ScopedFuncOpen,
+	gmr.Expr^'Cond',
+	lexeme' )', ScopedBlock^'Body'
+):tmpl'while($Cond)$Body'
 
 
 

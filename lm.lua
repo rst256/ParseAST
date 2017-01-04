@@ -1,9 +1,14 @@
---lexemes, keywords
+local lexer=require'lexer'
 
 local keywords_lexeme_id = lexemes.ident
 
+local ws_lexeme_id = { [0]=true, [0x1]=true, [0x2]=true }
 
-local function lexer_memoryzator(lex, offset)
+local function lexer_memoryzator(lex0, offset)
+	local lex
+	if type(lex0)=='string' then lex = lexer.new(lex0) else lex = lex0 end
+
+
 	local tok_mt = { __index={} }
 
 	function tok_mt:__eq(x)
@@ -47,13 +52,13 @@ local function lexer_memoryzator(lex, offset)
 local line, pos = lex:get_pos()
 
 			if not li then return li end
-			if dont_skip_whitespace or li~=0 then
+			if dont_skip_whitespace or (not ws_lexeme_id[li]) then
 
 				if li==keywords_lexeme_id then
 					li = keywords[lex:str()] or li
 				end
 				local vindex
-				if li~=0 then
+				if (not ws_lexeme_id[li]) then
 					self.vindex = self.vindex + 1
 					vindex = self.vindex
 				end

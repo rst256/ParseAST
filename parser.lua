@@ -191,6 +191,10 @@ function Rule:prefixof(that)
 	return false
 end
 
+local function tmpl_tostring(x)
+--	if type(x)=='boolean'
+end
+
 function __tmpl(tmpl, capt, undef_val)
 	assert(type(capt)=='table', type(capt)..'\t'..(tonumber(capt) or ''))
 	return ( tmpl
@@ -210,7 +214,7 @@ function __tmpl(tmpl, capt, undef_val)
 			return tostring(func(table.unpack(argv)) or (undef_val or ''))
 		end)
 		:gsub("(.?)%$([%a%d_]+)", function(is_tab, name)
-			if is_tab=='\t' then
+			if is_tab=='\t'  then--or is_tab=='\n'
 				local s, i = string.gsub(	is_tab..
 					tostring(capt[tonumber(name) or name] or
 						(undef_val or '')), '\n', '\n\t')
@@ -424,11 +428,11 @@ function Alt(...)
 					end
 					i, ov = v(idx)
 					if i~=nil then
-						if ov==nil then
-							return i, k
-						else
+--						if ov==nil then
+--							return i, k
+--						else
 							return i, ov
-						end
+--						end
 					end
 				end
 				return
@@ -522,7 +526,7 @@ function Seq(first, ...)
 			end
 			if type(ov)=='table' then ov.parent = new end
 			if type(v)=='table' and v.capt_name then
-				new[v.capt_name] = ov==nil and true or ov
+				new[v.capt_name] = ov--ov==nil and true or ov
 				use_capt_names=true
 			else
 				table.insert(new, ov)
@@ -973,14 +977,14 @@ Wrap = newRule(
 		if open_tok==nil then
 			return
 		elseif open_tok==false then
-			return self:error(tok,
-				'open wrap `'..tostring(self.open)..'` at end of file')
+			return nil,
+				tok.locate..'open wrap `'..tostring(self.open)..'` at end of file'
 		end
 
 		local close_tok, body_value = self.body(open_tok)
 		if close_tok==nil then
-			return self:error(open_tok,
-				'wrap body expected `'..tostring(self.body)..'`')
+			return nil,
+				open_tok.locate..'wrap body expected `'..tostring(self.body)..'`'
 		end
 
 		local end_tok = self.close(close_tok)
@@ -1010,6 +1014,28 @@ Wrap = newRule(
 function WrapAlt(open, body, close)
 	return Alt(body, Wrap(open, body, close))
 end
+
+IfThen = newRule(
+	function(cond, th)
+		assert(cond.def_value==nil and cond.rule_type~='opt')
+		return { cond=cond, th=th }
+	end,
+	function(self, tok)
+		local tc, vc = self.cond(tok)
+		if tc==nil then return tok end
+		local tt, vt = self.th(tc)
+		if vc~=nil then
+			return tt, setmetatable({ cond=vc, th=vt }, self.capt_mt)
+		end
+		return tt, vt
+	end,
+	{
+		rule_type='Precedence',
+		capt_mt={
+			__tostring=function(s) return tostring(s.cond)..' '..tostring(s.th) end,
+		},
+	}
+)
 
 Ident = lexeme'ident'--ptrn'([%a_][%a%d_]*)%f[^%a%d_]'
 

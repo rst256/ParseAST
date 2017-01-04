@@ -10,7 +10,9 @@ local lex_mem = require'lm'
 scope = require('ast.scope')()
 scope:define('int', { kind='type', sizeof=4, name='int' })
 scope:define('char', { kind='type', sizeof=1, name='char' })
+scope:define('unsigned', { kind='type', sizeof=4, name='unsigned' })
 scope:define('bool', { kind='type', sizeof=1, name='bool' })
+
 scope:define('void', { kind='type', sizeof=0, name='void' })
 
 --[[ булево: контекст, тип
@@ -106,26 +108,26 @@ local typeof = require('mtmix').typeof
 local fmt = '%.7s  %-40.40s  %10.10s    %-30.30s  %f'
 
 local function test(f)
-	lm=lex_mem(lexer.new(io.readall('test/src'..f..'.c')))
-	lm.source_file_name = 'test/src'..f..'.c'
+	lm=lex_mem(lexer.new(io.readall('test/src'..f)))
+	lm.source_file_name = 'test/src'..f
 	lm.scope = scope:sub()
 	local clock0=os.clock()
 	i, new = gmr( lm())
 	local clock=os.clock()-clock0
 	local s = tostring(new):gsub('%s*\n', '\n')
-	local s1 = io.readall('test/req'..f..'.c', '')
-	io.writeall('test/ans'..f..'.c', s)
+	local s1 = io.readall('test/req'..f, '')
+	io.writeall('test/ans'..f, s)
 	if s:gsub('%s+', ' ')==s1:gsub('%s+', ' ') then
-		print('ok  ', 'test/src'..f..'.c', clock)
+		print('ok  ', 'test/src'..f, clock)
 	elseif i==false then
-		print('modf', 'test/src'..f..'.c', clock)
+		print('modf', 'test/src'..f, clock)
 		io.write'update test file? (y/n): '
 		local ans = io.read(1)
 		if ans:find'^%s*[yY]%s*$' then
-			io.writeall('test/req'..f..'.c', s)
+			io.writeall('test/req'..f, s)
 		end
 	else
-		print('fail', 'test/src'..f..'.c', clock)
+		print('fail', 'test/src'..f, clock)
 	end
 	return i, new
 end
@@ -195,9 +197,9 @@ test_expr'.5*6*i*j+3'
 test_expr'0xFe<<1'
 test_expr'0xFe>>1'
 
-test'1'
-test'2'
-
+test'1.c'
+test'2.c'
+test'3.c'
 --local symmath = require'symmath'
 
 --local x = symmath.var'x'
@@ -209,30 +211,45 @@ test'2'
 --print( ((((((2 * 3) + i) - 2) * 2) * j) + 1) )
 --print( ((2*3+i-2)*2*j)-1 ==2*i*j+8*j-1 )
 
+--		el=[(" else" el=chunks)^'\n\telse\n\t\t$el\t']
+--		" end"!'if end expected'
 
+local clock0=os.clock()
 local g=require'parser-g2'
+print('require g2', os.clock()-clock0)
+
 
 local g_src = [[
+	lvalue_indexof:= id='ident' ' [' index=expr ' ]'
+	lvalue:= ( lvalue_indexof / 'ident' )*' .'
 	assign_op := '='/'+='/ '/=' /'-='/'*='
 	value:= (' ('<expr>' )')/		unop/
-		'hex'/'real'/'int'/'string1'/call/'ident'/'string2'
-	unop:= op=('-'/'!'/'&'/'*') arg=(value!'unop arg expected')
+		'hex'/'real'/'int'/'string1'/call/lvalue/'string2'
+	unop:= op=('-'/'!'/'&'/'*'/'~') arg=(value!'unop arg expected')
 
 	expr:= binop value {
-		'*' / '/',
+		'*' / '/' / '%',
 		'+' / '-',
-		'&'/'|'/'^',
-		'=='/'>='/'<='/'!='/'<'/'>',
+		'&'/'|'/'^'/'~',
+		'=='/'>='/'<='/'!='/'<'/'>'/'~=',
 		'&&'/'||',
 		assign_op
 	}
 
 	_if:=" if" cond=(expr!'cond expected') " then"!'`then` expected'
-		th=[chunks] " end"!'if end expected'
+		th=[chunks]
+		el=(
+			((" else" el=chunks " end"!'if end expected')^'\n\telse\n\t\t$el')/
+			" end"!'if end expected')
+
 	chunks:=*chunk
-	assign:= var='ident' op=assign_op value=expr
+
+	assign:= var=lvalue op=assign_op value=expr
+
+	define:= " local" var='ident' var_type=[type_def] value=('assign'?expr)
+
 	expr_list:=[expr*' ,']
-	call:=fn='ident' ' (' args=((expr*' ,')!'call func next arg expected')
+	call:=fn=lvalue ' (' args=((expr*' ,')!'call func next arg expected')
 		' )'!'call func end expected'
 	metacall:= ' @' fn='ident' ' (' args=((expr*' ,')!'call func next arg expected')
 		' )'!'call func end expected'
@@ -240,7 +257,7 @@ local g_src = [[
 	type_def:= ' <-' argtype='ident'
 	type_defs:= ' <-' argtypes=('ident'*' ,')
 	var_def:= argname='ident' argtype=[type_def]
-	func:=" function" fn='ident' ' ('
+	func:=" function" fn=lvalue ' ('
 		args=[(var_def)*' ,']	' )'!'define func arg list end expected'
 		rettype=[type_defs]
 		body=[chunks] " end"!'func end expected'
@@ -253,54 +270,72 @@ local g_src = [[
 		args=[('ident')*' ,']	' )'!'define metafunc arg list end expected'
 		body=expr (' @' " end")!'func end expected'
 	_for:=" for" var=assign " do" body=[chunks] " end"!'for end expected'
+	_while:=" while" cond=expr " do" body=[chunks] " end"!'while end expected'
 	gfor:=" for"
 		args=[(var_def)*' ,']
 		" in" iter=(expr!'gfor iter expected')
 		" do" body=[chunks] " end"!'for end expected'
-	chunk:=gfor/_for/_if/func/assign/call/ret/macrodef/metafunc/metacall
-]]
---
-	lm=lex_mem(lexer.new(g_src))
-	lm.scope = scope:sub()
 
-local i, new = g(lm())--lm())
-assert(i==false, tostring(i)..'\n'..tostring(new))
+	chunk:=gfor/_while/_for/_if/func/assign/call/ret/define/
+		macrodef/metafunc/metacall
+]]
+
+lm=lex_mem(lexer.new(g_src))
+lm.scope = scope:sub()
+
+clock0=os.clock()
+local i, new = g(lm())
+print('parse gg', os.clock()-clock0)
+
+if i~=false then
+	print(i, '\n'..tostring(new))
+	os.exit()
+end
+
+clock0=os.clock()
 io.writeall('ast.lua',
 	"dofile'keyword.lua'\nrequire'parser'\nlocal g = Grammar'chunks'\n\n"..
 	tostring(new)..[[
 
 g()
 g.assign:tmpl'$var $op $value'
-g._if:tmpl'if $cond then	$th	end'
+g._if:tmpl'if $cond then\n		$th$el\n\tend'
 g.call:tmpl'$fn($args)'
 g.metacall:tmpl'@$fn($args)'
 g.unop:tmpl'$op$arg'
 g.ret:tmpl'return $values'
-g.func:tmpl'function $fn($args)$rettype	$body	end'
+g.func:tmpl'function $fn($args)$rettype\n$body\nend'
 g.metafunc:tmpl'@function $fn($args)$rettype	$body	end'
 g.macrodef:tmpl'@macros $fn($args)	$body	@end'
 g.type_def:tmpl'<-$argtype'
 g.type_defs:tmpl'<-$argtypes'
 g.var_def:tmpl'$argname$argtype'
 g._for:tmpl'for $var do $body	end'
+g._while:tmpl'while $cond do\n\t$body\tend'
 g.gfor:tmpl'for $args in $iter do $body	end'
+g.lvalue_indexof:tmpl'$id[$index]'
+g.lvalue:tmpl'${.}'
+g.define:tmpl'local $var$var_type $value'
+
 
 --print(g'a=5+6*x printf("%d") if x<5 then x=5 end')
 return g
 	]]
 )
+print('write gg', os.clock()-clock0)
 
-
+clock0=os.clock()
 local gg=require'ast'
-
+print('require gg', os.clock()-clock0)
 --print(gg.eb.rule_type)
 
 
 --g
 
 gmr = gg
-local gg_i3, gg_a3 = test'1gg'
-print( gg_i3, gg_a3)
+test'3gg.lua'
+local gg_i3, gg_a3 = test'1gg.lua'
+--print( gg_i3, gg_a3)
 local ts = '  '
 local function fp(a, tab)
 	for k,v in pairs(a) do
@@ -325,7 +360,7 @@ local function fp(a, tab)
 		end
 	end
 end
-fp(gg_a3)
+--fp(gg_a3)
 
 --print(gg_a3[1].value.r.l.__rule)
 os.exit()

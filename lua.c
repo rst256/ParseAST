@@ -142,7 +142,7 @@ static int LuaLexer_get_token(lua_State *L) {//_from_file
 
 enum LexemeID {
 	lexid_real=0x2013, lexid_hex=0x201C, lexid_integer=0x201D, lexid_ident=0x2001, 
-	lexid_sl_comm, lexid_preproc, lexid_ml_comm, lexid_str=0x2002, 
+	lexid_sl_comm=0x1, lexid_preproc, lexid_ml_comm=0x2, lexid_str=0x2002, 
 	lexid_arrow,
 	lexid_assign, lexid_assign_add, 
 	lexid_assign_sub, lexid_assign_mul, lexid_assign_div, lexid_assign_bor, 
@@ -295,6 +295,7 @@ int get_next_token(source * src, int mode) {
 			case '>': case '=':														
 				if(ch2 == ch){ nextch(src); return ch | lexgroup_dbl_form; }
 			case '!': case '*': case '^': case '%': 														// special assigment tokens
+			case '~':
 				if(ch2=='='){ nextch(src); return ch | lexgroup_eq_postfix; }
 				return ch; 
 			case '.': 
@@ -315,7 +316,8 @@ int get_next_token(source * src, int mode) {
 					return lexid_real;
 				}
 				return ch; 
-				
+			default:
+				return ch;
 		}
 	}//else if(ch=='\'') return parse_string_literal(src, ch) ? lexid_str : -3;
 	return -2;	
