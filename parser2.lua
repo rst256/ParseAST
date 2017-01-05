@@ -45,6 +45,20 @@ function string:esc_pattern()
 	return res
 end
 
+function string:trim()
+	return (self:gsub('^%s+', ''):gsub('%s+$', ''))
+end
+
+function string:ltrim()
+	return (self:gsub('^%s+', ''))
+end
+
+function string:rtrim()
+	return (self:gsub('%s+$', ''))
+end
+
+
+
 
 
 local lex_mem = require'lm'
@@ -60,9 +74,22 @@ local scope = require('ast.scope')
 local function parse_rule(self, tok)
 	local t, v = self:parse(tok)
 	if t==nil then
-		if self.optional then return tok, self.default else return end
+		if self.optional then
+			return tok, self.default
+		else
+			if self.expected then
+				print(tok.locate..':'..
+					(self.expected==true and (self..' expected') or
+						tostring(self.expected)))
+				os.exit()
+			end
+			return
+		end
 	end
-	if self.rule_mt then setmetatable(v, self.rule_mt) end
+	if type(v)=='table' then
+		if self.rule_mt then setmetatable(v, self.rule_mt) end
+		v.self = self
+	end
 	return t, v
 end
 
@@ -73,22 +100,29 @@ local function proxy(orig, new)
 		__index=orig,
 		__len=function() return #orig end,
 		__concat=function(a, b) return tostring(a)..tostring(b) end,
+		__tostring=function(r)
+			if r.name then return r.name end
+			return tostring(r:tostr())
+		end,
+		__eq=function(a, b) return a.hash==b.hash end,
 	})
 end
 
 
+local function get_temp(self)
+	if self.temp then
+		return self
+	else
+		return proxy(self, { temp=true })
+	end
+end
 
 
 
 local rule = { temp=true }
 
 function rule:opt(default)
-	local v
-	if self.temp then
-		v = self
-	else
-		v = proxy(self, { temp=true })
-	end
+	local v = get_temp(self)
 	v.optional = true
 	v.default = default
 	return v
@@ -98,20 +132,20 @@ function rule:mt(mt)
 	if not mt.__concat then
 		mt.__concat=function(a, b) return tostring(a)..tostring(b) end
 	end
-	local v
-	if self.temp then
-		v = self
-	else
-		v = proxy(self, { temp=true })
-	end
+	local v = get_temp(self)
 	v.rule_mt = mt
 	return v
 end
 
---function rule:mt(mt)
---	self.rule_mt = mt
---	return self
---end
+function rule:expect(msg)
+	local v = get_temp(self)
+	v.expected = msg or true
+	return v
+end
+
+function rule:check()
+	return self
+end
 
 
 local function gen_rule_mt(mtd)
@@ -119,56 +153,79 @@ local function gen_rule_mt(mtd)
 		__call=parse_rule,
 		__index=table.index(mtd, rule),
 		__concat=function(a, b) return tostring(a)..tostring(b) end,
+		__tostring=function(r)
+			if r.name then return r.name end
+			return tostring(r:tostr())
+		end,
+		__eq=function(a, b) return a.hash==b.hash end,
 	}
 end
 
+local rule_hash = 0
 local function gen_rule_ctor(mtd, ctor)
 	local mt = gen_rule_mt(mtd)
 	if ctor then
 		return function(...)
-			return setmetatable(assert(ctor(...)), mt)
+			local new = setmetatable(assert(ctor(...)), mt)
+			rule_hash = rule_hash +1
+			new.hash = rule_hash
+			return new:check()
 		end
 	else
 		return function(this)
-			return setmetatable(this or {}, mt)
+			local new = setmetatable(this or {}, mt)
+			rule_hash = rule_hash +1
+			new.hash = rule_hash
+			return new:check()
 		end
 	end
 end
 
-local function gen_rule(mtd)
-	local mt = {
-		__call=parse_rule,
-		__index=table.index(mtd, rule),
-		__concat=function(a, b) return tostring(a)..tostring(b) end,
-	}
-	return function(this)
-		if this then assert(getmetatable(this)==nil) end
-		return setmetatable(this or {}, mt)
-	end
-end
+
 
 local sequence = { rules_nm={} } local sequence_mt = { __index=sequence }
 local alt = {} local iif = {}
-local rep = {} local rep_mt = { __index=rep }
-local enx = {} local enx_mt = { __index=enx }
+local rep = {} local tok = {}
+local enx = {}
+local const = {}
+local wrap = {}
+local list = {}
 
 local M = {
 	seq=gen_rule_ctor(sequence),
 	alt=gen_rule_ctor(alt, function(alts)
-		local alts = alts or {}
-		for k=1, #alts do
-			assert(not alts[k].optional)
-		end
-		return alts
+		return alts or {}
 	end),
 	rep=gen_rule_ctor(rep, function(items)
 		return { items=assert(items) }
 	end),
-	enx=gen_rule(enx),
-	iif=gen_rule_ctor(iif, function(cond, th, el)
-		assert(not cond.optional)
-		return { cond=cond, th=th, el=el }
+	list=gen_rule_ctor(list, function(items, sep)
+		return { items=assert(items), sep=assert(sep) }
 	end),
+	enx=gen_rule_ctor(enx, function(rule, ex_rule)
+		return { rule=assert(rule), ex_rule=assert(ex_rule) }
+	end),
+	iif=gen_rule_ctor(iif, function(cond, th, el)
+		return { cond=assert(cond), th=assert(th), el=el }
+	end),
+	tok=gen_rule_ctor(tok, function(p)
+		return {
+			pattern=assert(tonumber(tonumber(p) or lexemes[p:match'%s*(.+)']), p),
+			is_capture=tostring(p):sub(1,1)~=' '
+		}
+	end),
+	const=gen_rule_ctor(const, function(value)
+		assert(value~=nil)
+		return { const=value }
+	end),
+	wrap=gen_rule_ctor(wrap, function(open, body, close)
+		return { open=assert(open), body=assert(body), close=assert(close) }
+	end),
+}
+
+
+sequence.rule_mt = {
+	__tostring=function(r) return table.concat(r, ' ') end,
 }
 
 function sequence:add(rule, name, ...)
@@ -197,8 +254,30 @@ function sequence:parse(tok0)
 	return tok, this
 end
 
+function sequence:tostr()
+	local s, rn = '', assert(self.rules_nm)
+	for k=1, #self do
+		s=s..(rn[k]~=nil and (' '..rn[k]..'=') or ' ')..self[k]
+	end
+	return s:trim()--table.concat(self, ' ')
+end
 
 
+
+
+
+
+
+
+
+function alt:add(...)
+	for k=1, select('#', ...) do
+		local rule = select(k, ...)
+		assert(not rule.optional)
+		table.insert(self, rule)
+	end
+	return self
+end
 
 function alt:add(...)
 	for k=1, select('#', ...) do
@@ -219,6 +298,31 @@ function alt:parse(tok)
 		end
 	end
 end
+
+function alt:tostr()
+	return table.concat(self, ' | ')
+end
+
+function alt:check()
+	for k=1, #self do
+		assert(not self[k].optional, self..': alt member ('..self[k]..') is opt')
+	end
+	return self
+end
+
+
+
+
+
+
+function const:parse(tok)
+	return tok, self.const
+end
+
+function const:tostr()
+	return 'const('..tostring(self.const)..')'
+end
+
 
 
 rep.default = setmetatable({}, {
@@ -248,6 +352,46 @@ function rep:parse(tok0)
 	return tok, this
 end
 
+function rep:tostr()
+	return '{ '..tostring(self.items)..' }'
+end
+
+function rep:check()
+	assert(self~=self.items, self..': rep.items==self')
+	return self
+end
+
+
+
+
+function list:parse(tok0)
+	local ri, rs = self.items, self.sep
+	local tok, val = ri(tok0)
+	if tok==nil then
+		return
+	end
+	local this = { val }
+	while tok do
+		local ts = rs(tok)
+		if ts==nil then break end
+		local t, v = ri(ts)
+		if t==nil then return end
+		table.insert(this, v)
+		tok = t
+	end
+	return tok, this
+end
+
+function list:tostr()
+	return '{ '..tostring(self.items)..' }'
+end
+
+function list:check()
+	assert(self~=self.items, self..': list.items==self')
+	return self
+end
+
+
 
 
 
@@ -259,7 +403,35 @@ function enx:parse(tok)
 	if te==nil then return t, v end
 end
 
+function enx:tostr()
+	return '( '..tostring(self.rule)..'~'..tostring(self.ex_rule)..' )'
+end
 
+
+
+
+
+function wrap:parse(tok)
+	if not tok then return tok end
+	local to = self.open(tok)
+	if not to then return end
+
+	local tb, vb = self.body(to)
+	if not tb then return end
+
+	local tc = self.close(tb)
+	if tc~=nil then return tc, vb end
+end
+
+function wrap:tostr()
+	return '( '..tostring(self.open)..'<'..tostring(self.body)..
+		'>'..tostring(self.close)..' )'
+end
+
+function wrap:check()
+--	assert(not self.cond.optional, self..': iif.cond is opt')
+	return self
+end
 
 
 
@@ -270,56 +442,65 @@ function iif:parse(tok)
 	if not tok then return tok end
 	local t, v = assert(self.cond)(tok)
 	if t==nil then
-		if self.el then return self.el(tok) else return tok end
+		if self.el then
+			return self.el(tok)
+		else
+			return tok
+		end
 	else
 		if t==false then return end
 		return assert(self.th)(t)
 	end
 end
 
+function iif:tostr()
+	return '( '..tostring(self.cond)..'?'..tostring(self.th)..
+		((not self.el) and '' or ':'..self.el)..' )'
+end
 
-
-
-
-function M.lexeme(p)
-	local r = {
-		pattern=assert(tonumber(tonumber(p) or lexemes[p:match'%s*(.+)']), p),
-		is_capture=tostring(p):sub(1,1)~=' '
-	}
-
-	return setmetatable(r, {
-		__tostring=function(self)
-			return assert(lexemes[self.pattern])
-		end,
-		__index={
-			rule_type='lexeme',
-		},
-		__call=function(self, tok)
-			if tok and tok.lexeme==self.pattern then
-				if self.is_capture then
-					if self.capt_mt then
-						self.capt_mt.__index=self.capt_mt.__index or {}
-						self.capt_mt.__index.__rule=self
-						return tok.next or false, setmetatable({ tok=tok }, self.capt_mt)
-					else
-						return tok.next or false, setmetatable({ tok=tok }, {
-							__tostring=function(s) return tostring(s.tok) end,
-							__index={ __rule=self },
-							__concat=function(a, b) return tostring(a)..tostring(b) end,
-						})
-					end
-				else
-					return tok.next or false
-				end
-			end
-		end
-	})
+function iif:check()
+	assert(not self.cond.optional, self..': iif.cond is opt')
+	return self
 end
 
 
-M.new = setmetatable({}, {
-	__index=function(_, name) return M[name]() end,
-})
+
+
+
+tok.rule_mt = {
+	__tostring=function(s) return tostring(s.tok) end,
+--	__index={ __rule=self },
+	__concat=function(a, b) return tostring(a)..tostring(b) end,
+}
+
+
+function tok:parse(tok)
+	if tok and tok.lexeme==self.pattern then
+		if self.is_capture then
+--			if self.capt_mt then
+--				self.capt_mt.__index=self.capt_mt.__index or {}
+--				self.capt_mt.__index.__rule=self
+--				return tok.next or false, setmetatable({ tok=tok }, self.capt_mt)
+--			else
+				return tok.next or false, { tok=tok }--, {
+--					__tostring=function(s) return tostring(s.tok) end,
+--					__index={ __rule=self },
+--					__concat=function(a, b) return tostring(a)..tostring(b) end,
+--				})
+--			end
+		else
+			return tok.next or false
+		end
+	end
+end
+
+function tok:tostr()
+	return '\''..assert(lexemes[self.pattern])..'\''
+end
+
+
+
+
 
 
 local gmr_mt = {}
@@ -342,6 +523,7 @@ function gmr_mt:__newindex(name, value)
 	if frwd_rule then
 		value = proxy(value, frwd_rule)
 		frwd_rules[name] = nil
+		assert(value:check())
 	else
 		value.name = name
 	end
